@@ -1,0 +1,96 @@
+/* DyIsland: the Material 3 Expressive component layer. Loaded after styles.css and motion.css, before edges.css.
+   What this file adds on top of the tokens (tokens.css) and the base components (styles.css):
+     - shape: cookie-shaped tiles and a cookie date marker, connected button groups that morph, a pill toolbar for navigation
+     - progress: a wavy progress indicator (usage) and a morphing loading indicator (Claude is working)
+     - layout rhythm: one 4px-grid spacing language for every page
+   Everything here is flat colour and masks: no gradients, no blur. */
+
+:root {
+  --dy-cookie: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20100%20100%27%3E%3Cpath%20d%3D%27M96.0%2050.0L94.4%2052.9L90.6%2055.4L86.7%2057.3L84.8%2059.3L85.5%2062.0L87.9%2065.7L89.9%2069.7L89.8%2073.0L87.0%2074.7L82.5%2075.0L78.2%2074.7L75.5%2075.5L74.7%2078.2L75.0%2082.5L74.7%2087.0L73.0%2089.8L69.7%2089.9L65.7%2087.9L62.0%2085.5L59.3%2084.8L57.3%2086.7L55.4%2090.6L52.9%2094.4L50.0%2096.0L47.1%2094.4L44.6%2090.6L42.7%2086.7L40.7%2084.8L38.0%2085.5L34.3%2087.9L30.3%2089.9L27.0%2089.8L25.3%2087.0L25.0%2082.5L25.3%2078.2L24.5%2075.5L21.8%2074.7L17.5%2075.0L13.0%2074.7L10.2%2073.0L10.1%2069.7L12.1%2065.7L14.5%2062.0L15.2%2059.3L13.3%2057.3L9.4%2055.4L5.6%2052.9L4.0%2050.0L5.6%2047.1L9.4%2044.6L13.3%2042.7L15.2%2040.7L14.5%2038.0L12.1%2034.3L10.1%2030.3L10.2%2027.0L13.0%2025.3L17.5%2025.0L21.8%2025.3L24.5%2024.5L25.3%2021.8L25.0%2017.5L25.3%2013.0L27.0%2010.2L30.3%2010.1L34.3%2012.1L38.0%2014.5L40.7%2015.2L42.7%2013.3L44.6%209.4L47.1%205.6L50.0%204.0L52.9%205.6L55.4%209.4L57.3%2013.3L59.3%2015.2L62.0%2014.5L65.7%2012.1L69.7%2010.1L73.0%2010.2L74.7%2013.0L75.0%2017.5L74.7%2021.8L75.5%2024.5L78.2%2025.3L82.5%2025.0L87.0%2025.3L89.8%2027.0L89.9%2030.3L87.9%2034.3L85.5%2038.0L84.8%2040.7L86.7%2042.7L90.6%2044.6L94.4%2047.1L96.0%2050.0Z%27%2F%3E%3C%2Fsvg%3E");
+  --dy-wave: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2716%27%20height%3D%2712%27%20viewBox%3D%270%200%2016%2012%27%3E%3Cpath%20d%3D%27M0%206Q4%200%208%206T16%206%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%273%27%2F%3E%3C%2Fsvg%3E");
+}
+
+/* ================================================================ Navigation: a pill toolbar (Expressive "floating toolbar") */
+.nav { padding: 2px; gap: 2px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-highest); }
+.nav button { height: 36px; border-radius: var(--md-sys-shape-corner-full); background: transparent; color: var(--md-sys-color-on-surface-variant); }
+.nav button[aria-selected="true"] { border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); flex-grow: 2.6; }
+.nav button:active { border-radius: var(--md-sys-shape-corner-full); transform: scale(.94); }
+.nav .lbl { font: var(--md-sys-typescale-label-large-emphasized); }
+
+/* ================================================================ Connected button groups: small inner corners, full outer corners; the toggled one goes fully round */
+.m-ctrl { gap: 2px; }
+.m-ctrl .btn { height: 48px; border-radius: var(--md-sys-shape-corner-small); }
+.m-ctrl .btn.tonal:first-child { border-radius: 24px 8px 8px 24px; }
+.m-ctrl .btn.tonal:last-child { border-radius: 8px 24px 24px 8px; }
+.m-ctrl .btn.filled { width: 96px; border-radius: var(--md-sys-shape-corner-small); }
+.m-ctrl .btn.filled[data-playing="true"] { border-radius: 24px; }
+.m-ctrl .btn:active { border-radius: var(--md-sys-shape-corner-small); }
+
+.t-ctrl { gap: 2px; }
+.btn-start { border-radius: 28px 8px 8px 28px; font: var(--md-sys-typescale-title-medium-emphasized); }
+.btn-start[data-running="true"] { border-radius: 28px 8px 8px 28px; }
+.btn-start:active { border-radius: 28px 8px 8px 28px; }
+.btn-reset { border-radius: 8px 28px 28px 8px; }
+.btn-reset:active { border-radius: 8px 28px 28px 8px; }
+
+.chips { gap: 2px; }
+.chip { border: 0; background: var(--md-sys-color-surface-container-highest); border-radius: var(--md-sys-shape-corner-small); height: 32px; }
+.chip:first-child { border-radius: 16px 8px 8px 16px; }
+.chip:last-child { border-radius: 8px 16px 16px 8px; }
+.chip[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-radius: 16px; font: var(--md-sys-typescale-label-large-emphasized); }
+
+/* ================================================================ Cookie shapes (a 12-lobed scalloped circle): the icon tiles on Home and the toast icon */
+.cal-day.today { border-radius: var(--md-sys-shape-corner-full); font: var(--md-sys-typescale-label-medium-emphasized); }
+.hc .tile, .n-tile {
+  -webkit-mask: var(--dy-cookie) center / contain no-repeat; mask: var(--dy-cookie) center / contain no-repeat; border-radius: 0;
+}
+.hc .tile { width: 32px; height: 32px; }
+.hc .tile.art-s { border-radius: 0; }
+
+/* ================================================================ Wavy progress (usage): a moving wave on the filled part, a plain line for the rest, a dot at the end */
+.u-row { gap: 12px; }
+.u-track { position: relative; flex: 1; height: 12px; border-radius: 0; background: none; overflow: visible; }
+.u-track::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 4px; border-radius: 2px; background: var(--md-sys-color-secondary-container); }
+.u-track::after { content: ''; position: absolute; right: 0; top: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--md-sys-color-primary); }
+.u-fill {
+  position: relative; z-index: 1; height: 12px; border-radius: 0; background: var(--md-sys-color-primary);
+  -webkit-mask: var(--dy-wave) repeat-x 0 0 / 16px 12px; mask: var(--dy-wave) repeat-x 0 0 / 16px 12px;
+}
+:root[data-motion="expressive"] #wrap.open .u-fill { animation: dy-wave-flow 1.4s linear infinite; }
+@keyframes dy-wave-flow { to { -webkit-mask-position: 16px 0; mask-position: 16px 0; } }
+.page.anim .u-fill { animation: none; }
+
+/* ================================================================ Loading indicator: a shape that morphs and turns (replaces the thin spinner) */
+.ldr { display: none; width: 20px; height: 20px; flex: none; background: var(--md-sys-color-primary); border-radius: 50%; }
+.stchip[data-kind="work"] .ldr { display: block; }
+:root[data-motion="expressive"] .stchip[data-kind="work"] .ldr { animation: dy-ldr 1.8s var(--md-sys-motion-spring-default-spatial) infinite; }
+@keyframes dy-ldr {
+  0%   { border-radius: 50%;                      rotate: 0deg; }
+  25%  { border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%; rotate: 90deg; }
+  50%  { border-radius: 24%;                      rotate: 180deg; }
+  75%  { border-radius: 70% 30% 30% 70% / 70% 70% 30% 30%; rotate: 270deg; }
+  100% { border-radius: 50%;                      rotate: 360deg; }
+}
+@media (prefers-reduced-motion: reduce) { .ldr { animation: none !important; } }
+
+/* ================================================================ Layout rhythm: every page uses the same spacing steps */
+.h-cal, .hc, .stat, .u-cta, .u-bars { border-radius: var(--md-sys-shape-corner-large-increased); }
+.cb-item, .ag-row, .hour { border-radius: var(--md-sys-shape-corner-medium); }
+.ap-card { border-radius: var(--md-sys-shape-corner-large-increased); }
+.ap-btn { border-radius: var(--md-sys-shape-corner-full); font: var(--md-sys-typescale-label-large-emphasized); }
+.ap-tool, .ag-st { border-radius: var(--md-sys-shape-corner-full); }
+.ag-st { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 76px; }          /* one width for every status, the working dot sits beside the word */
+.ap-detail { font-family: var(--dy-font-code); font-variation-settings: normal; }
+.cb-head .title-medium, .ap-head .title-medium { font: var(--md-sys-typescale-title-medium-emphasized); }
+.m-text .title-medium { font: var(--md-sys-typescale-title-medium-emphasized); font-size: 18px; line-height: 24px; }
+.compact .c-time { font: var(--md-sys-typescale-label-large-emphasized); }
+.cal-title { font: var(--md-sys-typescale-label-large-emphasized); }
+.ag-name { font: var(--md-sys-typescale-label-large); }
+.stat .val { font: var(--md-sys-typescale-label-large-emphasized); }
+.h-time .display-large { font-weight: 900; font-variation-settings: var(--dy-rond-display); }
+.h-time .display-large .period { font-variation-settings: normal; }
+
+/* state layers: Material 3 values */
+.sl:hover::before { opacity: var(--md-sys-state-hover); }
+.sl:focus-visible::before { opacity: var(--md-sys-state-focus); }
+.sl:active::before { opacity: var(--md-sys-state-pressed); }

@@ -1,0 +1,51 @@
+/* The island docked to the LEFT or RIGHT screen edge instead of the top (Settings > Position).
+   The window is the same island; here it hangs from the side edge, vertically centred, flat on the screen edge and rounded on the free side.
+   Everything is gated on :root[data-edge], which app.js sets from the window info main sends. The top edge needs none of this. */
+
+:root[data-edge="left"] #wrap, :root[data-edge="right"] #wrap { top: 50%; translate: 0 -50%; }
+:root[data-edge="left"] #wrap { left: 0; transform-origin: 0 50%; }
+:root[data-edge="right"] #wrap { left: auto; right: 0; transform-origin: 100% 50%; }
+:root[data-edge="left"] #wrap.autohidden { translate: calc(-100% - 24px) -50%; }
+:root[data-edge="right"] #wrap.autohidden { translate: calc(100% + 24px) -50%; }
+
+/* flat against the screen edge, rounded on the free side */
+:root[data-edge="left"] #island  { border-radius: 0 calc(var(--idle-h) / 2) calc(var(--idle-h) / 2) 0; }
+:root[data-edge="right"] #island { border-radius: calc(var(--idle-h) / 2) 0 0 calc(var(--idle-h) / 2); }
+:root[data-edge="left"] #wrap.open #island, :root[data-edge="left"] #wrap.has-notice #island   { border-radius: 0 var(--shape-xl) var(--shape-xl) 0; }
+:root[data-edge="right"] #wrap.open #island, :root[data-edge="right"] #wrap.has-notice #island { border-radius: var(--shape-xl) 0 0 var(--shape-xl); }
+:root[data-edge="left"] .ear, :root[data-edge="right"] .ear { display: none; }            /* the notch ears only make sense at the top */
+
+/* status chips hang under the pill, on the side of the screen edge */
+:root[data-edge="left"] .stchip  { left: 0; right: auto; translate: 0 0; transform-origin: 0 0; }
+:root[data-edge="right"] .stchip { left: auto; right: 0; translate: 0 0; transform-origin: 100% 0; }
+:root[data-edge="left"] #wrap[data-split="2"] #chip, :root[data-edge="right"] #wrap[data-split="2"] #chip { translate: 0 0; }
+:root[data-edge="left"] #chip2, :root[data-edge="right"] #chip2 { top: calc(100% + 48px); }   /* split chips stack: there is no room beside each other at the edge */
+
+/* the settings button and the quick-actions tray swap sides on the right edge */
+:root[data-edge="right"] .settings-fab { left: auto; right: calc(100% + 8px); transform-origin: 100% 50%; }
+:root[data-edge="right"] .qtray { right: auto; left: -48px; transform-origin: 0 0; }
+
+/* Split chips on a side edge: id selectors in styles.css (left: 50% +- 4px) win over the rules above, so say it again with more weight */
+:root[data-edge="left"] #wrap #chip,  :root[data-edge="left"] #wrap #chip2  { left: 0; right: auto; translate: 0 0; transform-origin: 0 0; }
+:root[data-edge="right"] #wrap #chip, :root[data-edge="right"] #wrap #chip2 { left: auto; right: 0; translate: 0 0; transform-origin: 100% 0; }
+:root[data-edge="right"] #fab-bridge { left: auto; right: 100%; }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   On a side edge the RESTING island lies on its side: width and height swap, so it is a tall capsule hugging the screen edge
+   instead of a long bulge sticking out of it. (The open island keeps its normal size and shape.) */
+:root[data-edge="left"] #wrap:not(.open):not(.has-notice),
+:root[data-edge="right"] #wrap:not(.open):not(.has-notice) { width: var(--idle-h); height: var(--cw, var(--idle-w)); }
+
+/* the clock / weather / equaliser read along the capsule: bottom-to-top on the left edge, top-to-bottom on the right (like a book spine) */
+:root[data-edge="left"] .compact, :root[data-edge="right"] .compact {
+  inset: auto; left: 50%; top: 50%; width: var(--cw, var(--idle-w)); height: var(--idle-h);
+  translate: -50% -50%; transform-origin: 50% 50%;
+}
+:root[data-edge="left"] .compact  { rotate: -90deg; }
+:root[data-edge="right"] .compact { rotate: 90deg; }
+
+/* the eyes stay upright, side by side in the middle of the capsule */
+:root[data-edge="left"] .mascot, :root[data-edge="right"] .mascot { inset: auto 0 auto 0; top: 50%; translate: 0 -50%; gap: 6px; }
+
+/* camera / microphone dots sit at the bottom of the capsule */
+:root[data-edge="left"] .priv, :root[data-edge="right"] .priv { top: auto; bottom: 8px; left: 0; right: 0; height: auto; justify-content: center; }

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+<title>DyIsland settings</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="settings.css">
+<script src="vendor/dycolor.js"></script>
+<script src="presets.js"></script>
+<script src="theme.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61 1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.96 8.96 0 0 0 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24"><path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></symbol>
+    <symbol id="i-drag" viewBox="0 0 24 24"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
+  </defs>
+</svg>
+
+<main class="sheet" role="dialog" aria-label="DyIsland settings">
+  <header class="sheet-head">
+    <h1 class="head">Settings</h1>
+    <button class="icon-btn sl" id="close" aria-label="Close settings"><svg width="24" height="24"><use href="#i-close"/></svg></button>
+  </header>
+
+  <div class="search-wrap">
+    <input class="search" id="q" type="search" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false">
+  </div>
+
+  <div class="scroll" id="scroll">
+    <p class="no-match" id="noMatch" hidden>No settings match that</p>
+
+    <section class="group" aria-labelledby="g-look">
+      <h2 id="g-look" class="g-title">Appearance</h2>
+      <div class="field"><span class="field-label">Mode</span>
+        <div class="seg" role="radiogroup" aria-label="Light or dark" data-bind="theme.mode"><button role="radio" data-v="auto">Auto</button><button role="radio" data-v="light">Light</button><button role="radio" data-v="dark">Dark</button></div></div>
+      <div class="field" id="variantField"><span class="field-label">Color style</span>
+        <div class="seg" role="radiogroup" aria-label="Color style" data-bind="theme.variant" id="variants"></div></div>
+      <div class="field"><span class="field-label">Themes</span>
+        <div class="themes" id="themes" role="radiogroup" aria-label="Named themes"></div></div>
+      <div class="field"><span class="field-label">Color</span>
+        <div class="swatches" id="swatches" role="radiogroup" aria-label="Color"></div>
+        <div class="hex"><span class="hex-dot" id="hexDot"></span><input class="hex-input" id="hex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Custom color, six hex digits, for example 1FB5A5" placeholder="#1FB5A5"><span class="hex-note" id="hexNote">Any color you like</span></div></div>
+      <div class="field"><span class="field-label">Animations</span>
+        <div class="seg" role="radiogroup" aria-label="Animations" data-bind="motion"><button role="radio" data-v="expressive">Expressive</button><button role="radio" data-v="calm">Calm</button><button role="radio" data-v="off">Off</button></div></div>
+    </section>
+
+    <section class="group" aria-labelledby="g-display">
+      <h2 id="g-display" class="g-title">Display</h2>
+      <div class="field"><span class="field-label">Expand the island</span>
+        <div class="seg" role="radiogroup" aria-label="Expand the island on" data-bind="openOn"><button role="radio" data-v="click">On click</button><button role="radio" data-v="hover">On hover</button></div></div>
+      <label class="row"><span class="row-text"><b>Hide the island by default</b><small>Touch the top centre of the screen to bring it back</small></span><span class="switch"><input type="checkbox" data-bind="autoHide"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Hide in full-screen apps</b><small>Games, video and presentations</small></span><span class="switch"><input type="checkbox" data-bind="hideInFullscreen"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Mascot eyes</b><small>Two little eyes keep you company while the island is idle</small></span><span class="switch"><input type="checkbox" data-bind="mascot.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <div class="row slider" data-needs="mascot.enabled"><span class="row-text"><b>Eyes appear after</b></span><output data-out="mascot.delay" data-unit=" s"></output><input type="range" min="3" max="60" step="1" data-bind="mascot.delay" aria-label="Seconds of idling before the eyes appear"></div>
+      <label class="row"><span class="row-text"><b>Split status chips</b><small>When two things happen at once, show both side by side</small></span><span class="switch"><input type="checkbox" data-bind="split.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <div class="field" data-needs="split.enabled"><span class="field-label">Which leads</span>
+        <div class="seg" role="radiogroup" aria-label="Which status chip leads" data-bind="split.lead"><button role="radio" data-v="auto">Auto</button><button role="radio" data-v="work">Claude</button><button role="radio" data-v="timer">Timer</button><button role="radio" data-v="limit">Limit</button></div></div>
+      <label class="row"><span class="row-text"><b>Camera and microphone dot</b><small>A small dot on the island while an app is using your camera (green) or microphone (orange)</small></span><span class="switch"><input type="checkbox" data-bind="privacy.dot"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+    </section>
+
+    <section class="group" aria-labelledby="g-pos">
+      <h2 id="g-pos" class="g-title">Position</h2>
+      <div class="field"><span class="field-label">Screen edge</span>
+        <div class="seg" role="radiogroup" aria-label="Screen edge" data-bind="placement.edge"><button role="radio" data-v="top">Top</button><button role="radio" data-v="left">Left</button><button role="radio" data-v="right">Right</button></div></div>
+      <div class="field"><span class="field-label">Monitor</span>
+        <select class="select" id="monitorSel" data-bind="placement.monitor" aria-label="Which monitor shows the island"></select>
+        <span class="hint" id="monitorNote">Main monitor</span></div>
+    </section>
+
+    <section class="group" aria-labelledby="g-size">
+      <h2 id="g-size" class="g-title">Island size</h2>
+      <p class="g-sub">The island resizes live while you drag.</p>
+      <div class="sub-title">At rest</div>
+      <p class="hint" id="sideNote" hidden>On the left or right edge the resting island lies on its side: its width runs along the screen edge.</p>
+      <div class="row slider"><span class="row-text"><b>Width</b></span><output data-out="size.idle.w" data-unit=" px"></output><input type="range" min="100" max="260" step="4" data-bind="size.idle.w" aria-label="Width of the resting island"></div>
+      <div class="row slider"><span class="row-text"><b>Height</b></span><output data-out="size.idle.h" data-unit=" px"></output><input type="range" min="24" max="48" step="4" data-bind="size.idle.h" aria-label="Height of the resting island"></div>
+      <div class="sub-title">Hovered and expanded</div>
+      <div class="row slider"><span class="row-text"><b>Width</b></span><output data-out="size.open.w" data-unit=" px"></output><input type="range" min="416" max="640" step="8" data-bind="size.open.w" aria-label="Width of the open island"></div>
+      <div class="row slider"><span class="row-text"><b>Height</b></span><output data-out="size.open.h" data-unit=" px"></output><input type="range" min="232" max="340" step="4" data-bind="size.open.h" aria-label="Height of the open island"></div>
+      <button class="tonal-btn sl" id="resetSizes">Reset sizes</button>
+    </section>
+
+    <section class="group" aria-labelledby="g-home">
+      <h2 id="g-home" class="g-title">Home page</h2>
+      <label class="row"><span class="row-text"><b>Calendar</b><small>The month grid on the Home page</small></span><span class="switch"><input type="checkbox" data-bind="home.calendar"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <div class="field" data-needs="home.calendar"><span class="field-label">Calendar side</span>
+        <div class="seg" role="radiogroup" aria-label="Calendar side" data-bind="home.side"><button role="radio" data-v="left">Left</button><button role="radio" data-v="right">Right</button></div></div>
+      <div class="field"><span class="field-label">First card</span><select class="select" data-bind="home.first" aria-label="First card"><option value="weather">Weather</option><option value="music">Music</option><option value="countdown">Countdown</option><option value="none">Nothing</option></select></div>
+      <div class="field"><span class="field-label">Second card</span><select class="select" data-bind="home.second" aria-label="Second card"><option value="weather">Weather</option><option value="music">Music</option><option value="countdown">Countdown</option><option value="none">Nothing</option></select></div>
+      <div class="field"><span class="field-label">Countdown</span>
+        <input class="select" type="text" maxlength="40" placeholder="What are you counting down to?" data-bind="home.countdown.label" aria-label="Countdown name" autocomplete="off" spellcheck="false">
+        <input class="select" type="date" data-bind="home.countdown.date" aria-label="Countdown date"></div>
+    </section>
+
+    <section class="group" aria-labelledby="g-tabs">
+      <h2 id="g-tabs" class="g-title">Tabs</h2>
+      <p class="g-sub">Drag to reorder, or use the arrows. Switch a tab off to hide it.</p>
+      <ul class="tab-list" id="tabList"></ul>
+    </section>
+
+    <section class="group" aria-labelledby="g-alerts">
+      <h2 id="g-alerts" class="g-title">Alerts</h2>
+      <label class="row"><span class="row-text"><b>Do not disturb</b><small>No toasts, no approval cards (Claude asks in the terminal) and no sounds</small></span><span class="switch"><input type="checkbox" data-bind="quiet.dnd"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Mute sounds</b><small>Silences the timer and alert chimes only</small></span><span class="switch"><input type="checkbox" data-bind="quiet.mute"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Usage pace warning</b><small>Tells you when Claude is on course to run out before the limit resets</small></span><span class="switch"><input type="checkbox" data-bind="usage.forecast"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Limit reset alert</b><small>A heads-up when a limit starts over</small></span><span class="switch"><input type="checkbox" data-bind="usage.resetAlert"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Low battery warning</b><small>A heads-up on the island at 15%</small></span><span class="switch"><input type="checkbox" data-bind="battery.warn"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+    </section>
+
+    <section class="group" aria-labelledby="g-keys">
+      <h2 id="g-keys" class="g-title">Shortcuts</h2>
+      <div class="field"><span class="field-label">Shortcut to open or close the island</span>
+        <select class="select" data-bind="hotkey" aria-label="Keyboard shortcut">
+          <option value="Control+Alt+Space">Ctrl + Alt + Space</option><option value="Control+Alt+D">Ctrl + Alt + D</option>
+          <option value="Control+Alt+I">Ctrl + Alt + I</option><option value="Control+Shift+Space">Ctrl + Shift + Space</option><option value="">Off</option></select>
+        <span class="status" id="hotkeyNote" hidden>Another app is using that shortcut. Pick a different one.</span></div>
+      <div class="field"><span class="field-label">Shortcut to open Settings</span>
+        <select class="select" data-bind="settingsHotkey" aria-label="Settings shortcut">
+          <option value="">Off</option><option value="Control+Alt+F10">Ctrl + Alt + F10</option><option value="Control+Alt+F9">Ctrl + Alt + F9</option><option value="Control+Alt+,">Ctrl + Alt + ,</option></select>
+        <span class="status" id="settingsKeyNote" hidden>Another app is using that shortcut. Pick a different one.</span></div>
+    </section>
+
+    <section class="group" aria-labelledby="g-clip">
+      <h2 id="g-clip" class="g-title">Clipboard</h2>
+      <label class="row"><span class="row-text"><b>Clipboard history</b><small>Adds a Clipboard tab. Text only, kept in memory, gone when you quit</small></span><span class="switch"><input type="checkbox" data-bind="clipboard.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+    </section>
+
+    <section class="group" aria-labelledby="g-region">
+      <h2 id="g-region" class="g-title">Units and format</h2>
+      <div class="field"><span class="field-label">Temperature</span>
+        <div class="seg" role="radiogroup" aria-label="Temperature unit" data-bind="units.temp"><button role="radio" data-v="c">°C</button><button role="radio" data-v="f">°F</button></div></div>
+      <div class="field"><span class="field-label">Clock</span>
+        <div class="seg" role="radiogroup" aria-label="Clock format" data-bind="units.clock"><button role="radio" data-v="auto">Auto</button><button role="radio" data-v="12">12 hour</button><button role="radio" data-v="24">24 hour</button></div></div>
+      <div class="field"><span class="field-label">Week starts on</span>
+        <div class="seg" role="radiogroup" aria-label="First day of the week" data-bind="calendar.weekStart"><button role="radio" data-v="auto">Auto</button><button role="radio" data-v="mon">Mon</button><button role="radio" data-v="sun">Sun</button><button role="radio" data-v="sat">Sat</button></div></div>
+    </section>
+
+    <section class="group" aria-labelledby="g-claude">
+      <h2 id="g-claude" class="g-title">Claude Code</h2>
+      <label class="row"><span class="row-text"><b>Approve from the island</b><small>Allow or deny Claude's permission prompts here. Needs the hooks below. If you do not answer, Claude asks in the terminal as usual</small></span><span class="switch"><input type="checkbox" data-bind="approvals.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <div class="row slider" data-needs="approvals.enabled"><span class="row-text"><b>Wait for my answer</b></span><output data-out="approvals.wait" data-unit=" s"></output><input type="range" min="10" max="120" step="5" data-bind="approvals.wait" aria-label="Seconds to wait before Claude asks in the terminal"></div>
+      <label class="row"><span class="row-text"><b>Tell me when Claude goes quiet</b><small>Needs the PostToolUse hook, which keeps sessions alive during long tasks</small></span><span class="switch"><input type="checkbox" data-bind="agents.quietAlert"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <button class="tonal-btn sl" id="copyHooks">Copy hooks setup</button>
+      <p class="hint" id="hooksNote" hidden>Copied. Paste it into ~/.claude/settings.json (merge it into an existing "hooks" block)</p>
+    </section>
+
+    <section class="group" aria-labelledby="g-dns">
+      <h2 id="g-dns" class="g-title">NextDNS switch</h2>
+      <label class="row"><span class="row-text"><b>NextDNS tile</b><small>A tile in the quick actions (hover the gear) that turns NextDNS on and off</small></span><span class="switch"><input type="checkbox" data-bind="dns.tile"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <p class="hint" id="dnsState">Checking...</p>
+      <div class="btn-row">
+        <button class="tonal-btn sl" id="dnsSetup">Set up</button>
+        <button class="tonal-btn sl" id="dnsRemove">Remove</button>
+      </div>
+      <p class="hint">Setup asks for administrator approval once. It does not change your DNS: it records your current NextDNS settings and lets only you switch between them and automatic DNS (your ISP). Off puts your connection back on automatic DNS.</p>
+    </section>
+
+    <section class="group" aria-labelledby="g-check">
+      <h2 id="g-check" class="g-title">Setup check</h2>
+      <div class="chk-list" id="chkList" role="list" aria-live="polite"></div>
+      <button class="tonal-btn sl" id="recheck">Check again</button>
+    </section>
+
+    <section class="group" aria-labelledby="g-backup">
+      <h2 id="g-backup" class="g-title">Backup and app</h2>
+      <div class="btn-row">
+        <button class="tonal-btn sl" id="exportBtn">Export settings</button>
+        <button class="tonal-btn sl" id="importBtn">Import settings</button>
+      </div>
+      <p class="hint" id="bkNote" hidden></p>
+      <div class="btn-row">
+        <button class="tonal-btn sl" id="restartBtn">Restart DyIsland</button>
+        <button class="danger-btn sl" id="quitBtn">Quit DyIsland</button>
+      </div>
+    </section>
+
+    <section class="group last">
+      <button class="danger-btn sl" id="resetAll">Reset all settings</button>
+    </section>
+  </div>
+</main>
+<script src="bridge-mock.js"></script>
+<script src="settings.js"></script>
+</body>
+</html>

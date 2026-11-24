@@ -1,0 +1,71 @@
+name: Release
+
+# Builds the Windows installer and a portable zip, and attaches them to a GitHub release.
+#   - push a tag such as v1.0.0     -> builds and publishes the release
+#   - "Run workflow" (manual)        -> builds and keeps the files as a workflow artifact only
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      - name: The tag must match package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          pkg="v$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${pkg}"; exit 1
+          fi
+
+      - name: Build installer and zip
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } |
+            ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } |
+            Set-Content dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DyIsland-windows
+          path: |
+            dist/DyIsland-Setup-*.exe
+            dist/DyIsland-*-win-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DyIsland ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/DyIsland-Setup-*.exe
+            dist/DyIsland-*-win-x64.zip
+            dist/SHA256SUMS.txt

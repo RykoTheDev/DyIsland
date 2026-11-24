@@ -1,0 +1,13 @@
+# dependencies and build output
+node_modules/
+dist/
+test/.build/
+
+# runtime / local files
+media.log
+*.log
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store

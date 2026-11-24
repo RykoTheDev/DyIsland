@@ -1,0 +1,160 @@
+/* Material 3 Expressive design tokens, shared by the island (styles.css) and the settings window (settings.css).
+   Colour roles below are only the starting point: theme.js replaces them at runtime from the chosen seed colour. */
+@font-face {
+  font-family: 'Google Sans Flex';
+  src: url('fonts/google-sans-flex-latin-full-normal.woff2') format('woff2-variations');
+  font-weight: 1 1000;
+  font-stretch: 25% 151%;
+  font-display: block;
+  font-variation-settings: "ROND" 50;                         /* a hint of roundness in every style (display text goes to 100) */
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- Colour roles: light ---- */
+  --md-sys-color-primary: #006A60;
+  --md-sys-color-on-primary: #FFFFFF;
+  --md-sys-color-primary-container: #00FDE7;
+  --md-sys-color-on-primary-container: #005048;
+  --md-sys-color-secondary: #386569;
+  --md-sys-color-on-secondary: #FFFFFF;
+  --md-sys-color-secondary-container: #BCEBEF;
+  --md-sys-color-on-secondary-container: #1E4D51;
+  --md-sys-color-tertiary: #216679;
+  --md-sys-color-on-tertiary: #FFFFFF;
+  --md-sys-color-tertiary-container: #B2EBFF;
+  --md-sys-color-on-tertiary-container: #004E5F;
+  --md-sys-color-error: #BA1A1A;
+  --md-sys-color-on-error: #FFFFFF;
+  --md-sys-color-error-container: #FFDAD6;
+  --md-sys-color-on-error-container: #93000A;
+  --md-sys-color-surface: #EEFDF8;
+  --md-sys-color-surface-container-lowest: #FFFFFF;
+  --md-sys-color-surface-container-low: #E8F7F3;
+  --md-sys-color-surface-container: #E2F1ED;
+  --md-sys-color-surface-container-high: #DDEBE7;
+  --md-sys-color-surface-container-highest: #D7E6E2;
+  --md-sys-color-on-surface: #111E1C;
+  --md-sys-color-on-surface-variant: #394A47;
+  --md-sys-color-outline: #697B77;
+  --md-sys-color-outline-variant: #B8CAC6;
+  /* Meaning colours that must not follow the seed (the sun, "a limit is about to run out") */
+  --dy-sun: #B07A00;
+  --dy-warn: #8A5F00;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --md-sys-color-primary: #00DECA;
+    --md-sys-color-on-primary: #003731;
+    --md-sys-color-primary-container: #005048;
+    --md-sys-color-on-primary-container: #00FDE7;
+    --md-sys-color-secondary: #A0CFD3;
+    --md-sys-color-on-secondary: #00363A;
+    --md-sys-color-secondary-container: #1E4D51;
+    --md-sys-color-on-secondary-container: #BCEBEF;
+    --md-sys-color-tertiary: #91D0E5;
+    --md-sys-color-on-tertiary: #003642;
+    --md-sys-color-tertiary-container: #004E5F;
+    --md-sys-color-on-tertiary-container: #B2EBFF;
+    --md-sys-color-error: #FFB4AB;
+    --md-sys-color-on-error: #690005;
+    --md-sys-color-error-container: #93000A;
+    --md-sys-color-on-error-container: #FFDAD6;
+    --md-sys-color-surface: #091614;
+    --md-sys-color-surface-container-lowest: #050F0D;
+    --md-sys-color-surface-container-low: #111E1C;
+    --md-sys-color-surface-container: #152220;
+    --md-sys-color-surface-container-high: #202C2A;
+    --md-sys-color-surface-container-highest: #2A3735;
+    --md-sys-color-on-surface: #D7E6E2;
+    --md-sys-color-on-surface-variant: #B8CAC6;
+    --md-sys-color-outline: #829490;
+    --md-sys-color-outline-variant: #394A47;
+    --dy-sun: #F2C14E;
+    --dy-warn: #F2C14E;
+  }
+}
+
+:root {
+  /* ---- Type: Google Sans Flex, the FULL Material 3 Expressive scale (15 styles) and an emphasized twin of each.
+     Weights run heavier than baseline Material (that is the Expressive look); line boxes sit on the 4px grid.
+     Display and headline styles also get the font's width axis and its ROND (roundness) axis: soft, wide, confident letterforms. ---- */
+  --md-sys-typescale-display-large: 800 57px/64px 'Google Sans Flex';
+  --md-sys-typescale-display-medium: 800 45px/52px 'Google Sans Flex';
+  --md-sys-typescale-display-small: 800 36px/44px 'Google Sans Flex';
+  --md-sys-typescale-headline-large: 750 32px/40px 'Google Sans Flex';
+  --md-sys-typescale-headline-medium: 750 28px/36px 'Google Sans Flex';
+  --md-sys-typescale-headline-small: 750 24px/32px 'Google Sans Flex';
+  --md-sys-typescale-title-large: 700 22px/28px 'Google Sans Flex';
+  --md-sys-typescale-title-medium: 650 16px/24px 'Google Sans Flex';
+  --md-sys-typescale-title-small: 650 14px/20px 'Google Sans Flex';
+  --md-sys-typescale-body-large: 450 16px/24px 'Google Sans Flex';
+  --md-sys-typescale-body-medium: 450 14px/20px 'Google Sans Flex';
+  --md-sys-typescale-body-small: 450 12px/16px 'Google Sans Flex';
+  --md-sys-typescale-label-large: 650 14px/20px 'Google Sans Flex';
+  --md-sys-typescale-label-medium: 600 12px/16px 'Google Sans Flex';
+  --md-sys-typescale-label-small: 600 11px/16px 'Google Sans Flex';
+  /* emphasized: the same style, bolder (Expressive uses these for selected, active and key information) */
+  --md-sys-typescale-display-large-emphasized: 900 57px/64px 'Google Sans Flex';
+  --md-sys-typescale-display-medium-emphasized: 900 45px/52px 'Google Sans Flex';
+  --md-sys-typescale-display-small-emphasized: 900 36px/44px 'Google Sans Flex';
+  --md-sys-typescale-headline-large-emphasized: 850 32px/40px 'Google Sans Flex';
+  --md-sys-typescale-headline-medium-emphasized: 850 28px/36px 'Google Sans Flex';
+  --md-sys-typescale-headline-small-emphasized: 850 24px/32px 'Google Sans Flex';
+  --md-sys-typescale-title-large-emphasized: 800 22px/28px 'Google Sans Flex';
+  --md-sys-typescale-title-medium-emphasized: 750 16px/24px 'Google Sans Flex';
+  --md-sys-typescale-title-small-emphasized: 750 14px/20px 'Google Sans Flex';
+  --md-sys-typescale-body-large-emphasized: 600 16px/24px 'Google Sans Flex';
+  --md-sys-typescale-body-medium-emphasized: 600 14px/20px 'Google Sans Flex';
+  --md-sys-typescale-body-small-emphasized: 600 12px/16px 'Google Sans Flex';
+  --md-sys-typescale-label-large-emphasized: 750 14px/20px 'Google Sans Flex';
+  --md-sys-typescale-label-medium-emphasized: 700 12px/16px 'Google Sans Flex';
+  --md-sys-typescale-label-small-emphasized: 700 11px/16px 'Google Sans Flex';
+  --dy-stretch-display: 108%;                                  /* wide, heavy numerals and headlines */
+  --dy-rond-display: "ROND" 100;                               /* fully rounded letterforms for display and headline text */
+  --dy-rond-text: "ROND" 40;                                   /* a hint of roundness everywhere else */
+  --dy-font-code: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;   /* only for commands and paths on the approval card */
+
+  /* ---- Spacing: the 4px grid ---- */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
+
+  /* ---- Shape: the Expressive corner scale (official names), plus the aliases the stylesheets already use ---- */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-large-increased: 20px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-extra-large-increased: 32px;
+  --md-sys-shape-corner-extra-extra-large: 48px;
+  --md-sys-shape-corner-full: 999px;
+  --shape-xs: 8px;
+  --shape-sm: 12px;
+  --shape-md: 16px;
+  --shape-lg: 20px;
+  --shape-xl: 28px;
+  --shape-2xl: 32px;
+
+  /* ---- State layers (Material 3): hover 8%, focus 10%, pressed 10%, dragged 16%; disabled content 38% ---- */
+  --md-sys-state-hover: .08;
+  --md-sys-state-focus: .10;
+  --md-sys-state-pressed: .10;
+  --md-sys-state-dragged: .16;
+  --md-sys-state-disabled: .38;
+
+  /* ---- Motion: one soft overshoot to open, no bounce on close ---- */
+  --ease-open: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-close: cubic-bezier(0.2, 0, 0, 1);
+  --ease-press: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --d-open: 420ms;
+  --d-close: 280ms;
+  --d-item: 260ms;
+  --d-fx: 160ms;
+  /* Material 3 Expressive names for the same motion: SPATIAL springs move things (they overshoot once), EFFECTS springs change colour and opacity (they never overshoot) */
+  --md-sys-motion-spring-fast-spatial: var(--ease-press);
+  --md-sys-motion-spring-default-spatial: var(--ease-open);
+  --md-sys-motion-spring-fast-effects: var(--ease-close);
+  --md-sys-motion-spring-default-effects: var(--ease-close);
+}

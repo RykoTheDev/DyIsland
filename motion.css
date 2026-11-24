@@ -1,0 +1,150 @@
+/* DyIsland motion layer: Material 3 Expressive "spatial springs" on every card and on the island itself.
+   Loaded after styles.css. Everything here is gated on :root[data-motion="expressive"], which app.js sets from
+   Settings > Animations (Expressive / Calm / Off) and never sets while the system asks for reduced motion.
+   Rules kept from the base design: the island opens in <450 ms with ONE soft overshoot, content staggers 40 ms apart,
+   no blur and no gradients (only transform, scale, opacity, and flat box-shadow rings). */
+
+:root {
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);        /* fast, one overshoot */
+  --spring-soft: cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+/* ---------------------------------------------------------------- shared keyframes */
+@keyframes m-slide-fwd  { from { opacity: 0; transform: translateX(20px) scale(.94); } to { opacity: 1; transform: none; } }
+@keyframes m-slide-back { from { opacity: 0; transform: translateX(-20px) scale(.94); } to { opacity: 1; transform: none; } }
+@keyframes m-pop        { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+@keyframes m-pop-up     { from { opacity: 0; transform: translateY(12px) scale(.9); } to { opacity: 1; transform: none; } }
+@keyframes m-row-in     { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+@keyframes m-grow-x     { from { transform: scaleX(0); } to { transform: none; } }
+@keyframes m-grow-y     { from { transform: scaleY(0); } to { transform: none; } }
+@keyframes m-icon-bounce { 0% { transform: scale(.7) rotate(-12deg); } 60% { transform: scale(1.18) rotate(4deg); } 100% { transform: none; } }
+@keyframes m-wiggle     { 0%, 100% { rotate: 0deg; } 25% { rotate: -12deg; } 60% { rotate: 9deg; } 85% { rotate: -3deg; } }
+@keyframes m-float      { 0%, 100% { translate: 0 0; } 50% { translate: 0 -2px; } }
+@keyframes m-spin-slow  { to { rotate: 360deg; } }
+@keyframes m-sway       { 0%, 100% { rotate: -4deg; } 50% { rotate: 4deg; } }
+@keyframes m-drift      { 0%, 100% { translate: -2px 0; } 50% { translate: 2px 0; } }
+@keyframes m-fall       { 0% { translate: 0 -2px; } 50% { translate: 0 2px; } 100% { translate: 0 -2px; } }
+@keyframes m-breathe    { 0%, 100% { scale: 1 1; } 50% { scale: 1.03 1.07; } }
+@keyframes m-pulse      { 0%, 100% { scale: 1; } 50% { scale: 1.06; } }
+@keyframes m-ring-pulse { 0%, 100% { scale: 1; } 50% { scale: 1.035; } }
+@keyframes m-ken        { from { scale: 1; } to { scale: 1.08; } }
+@keyframes m-tick       { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes m-text-in    { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes m-dot        { 0%, 100% { opacity: .35; scale: .8; } 50% { opacity: 1; scale: 1.15; } }
+@keyframes m-nudge      { 0%, 70%, 100% { translate: 0 0; } 78% { translate: 3px 0; } 86% { translate: -3px 0; } 94% { translate: 2px 0; } }
+@keyframes m-copied     { 0% { transform: scale(.96); } 50% { transform: scale(1.03); } 100% { transform: none; } }
+@keyframes m-ping       { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); } 100% { box-shadow: 0 0 0 7px transparent; } }
+@keyframes m-cal-month-fwd  { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes m-cal-month-back { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+
+/* ================================================================ WHOLE ISLAND */
+/* Pages slide in the direction you travelled (forward = from the right), springy, 40 ms apart */
+:root[data-motion="expressive"] .page.anim > :not(.m-body):not(.h-col),
+:root[data-motion="expressive"] .page.anim .m-body > *,
+:root[data-motion="expressive"] .page.anim .h-col > * {
+  animation-name: m-slide-fwd; animation-timing-function: var(--spring); animation-duration: 340ms;
+}
+:root[data-motion="expressive"] #wrap[data-dir="back"] .page.anim > :not(.m-body):not(.h-col),
+:root[data-motion="expressive"] #wrap[data-dir="back"] .page.anim .m-body > *,
+:root[data-motion="expressive"] #wrap[data-dir="back"] .page.anim .h-col > * { animation-name: m-slide-back; }
+
+/* Tab buttons pop in one after another as the island opens; the selected icon bounces */
+:root[data-motion="expressive"] #wrap.open .nav > * { animation: m-pop 300ms var(--spring) backwards; animation-delay: calc(110ms + var(--k, 0) * 36ms); }
+.nav > :nth-child(1) { --k: 0; } .nav > :nth-child(2) { --k: 1; } .nav > :nth-child(3) { --k: 2; } .nav > :nth-child(4) { --k: 3; }
+.nav > :nth-child(5) { --k: 4; } .nav > :nth-child(6) { --k: 5; } .nav > :nth-child(7) { --k: 6; } .nav > :nth-child(8) { --k: 7; }
+:root[data-motion="expressive"] .nav [aria-selected="true"] svg { animation: m-icon-bounce 440ms var(--spring); }
+:root[data-motion="expressive"] .nav > button:active { transform: scale(.9); }
+
+/* The resting pill breathes very slightly while nothing is going on (stops as soon as anything happens) */
+:root[data-motion="expressive"] #wrap[data-mode="idle"]:not(.open):not(.has-notice):not([data-eyes]):not(.autohidden) #island {
+  animation: m-breathe 6s ease-in-out infinite; transform-origin: 50% 0;
+}
+
+/* Alerts: the whole island wobbles (existing) and the toast icon and text spring in */
+:root[data-motion="expressive"] #wrap.has-notice:not(.open) .n-tile svg { animation: m-icon-bounce 520ms var(--spring) 220ms backwards; }
+:root[data-motion="expressive"] #wrap.has-notice:not(.open) .notice .n-text > :nth-child(1) { animation: m-text-in 320ms var(--spring) 160ms backwards; }
+:root[data-motion="expressive"] #wrap.has-notice:not(.open) .notice .n-text > :nth-child(2) { animation: m-text-in 320ms var(--spring) 220ms backwards; }
+
+/* Status chips slide apart from the centre when they split, and back together when they merge */
+:root[data-motion="expressive"] .stchip { transition: opacity var(--d-fx) ease-out, scale var(--d-item) var(--ease-press), left 320ms var(--spring), translate 320ms var(--spring); }
+:root[data-motion="expressive"] .stchip.on { transition: opacity var(--d-fx) ease-out 200ms, scale var(--d-item) var(--ease-press) 200ms, left 320ms var(--spring), translate 320ms var(--spring); }
+:root[data-motion="expressive"] .stchip[data-kind="approve"].on { animation: m-pulse 1.6s ease-in-out infinite; }
+:root[data-motion="expressive"] .stchip.swap { animation-timing-function: var(--spring); }
+
+/* The camera / microphone dot sends out a ring now and then */
+:root[data-motion="expressive"] .priv i { color: inherit; animation: priv-pop var(--d-item) var(--ease-press), m-ping 2.4s ease-out 600ms infinite; }
+:root[data-motion="expressive"] .p-cam { color: #34C759; }
+:root[data-motion="expressive"] .p-mic { color: #FF9F0A; }
+
+/* ================================================================ CARDS */
+/* ---- Home ---- */
+:root[data-motion="expressive"] #h-time.tick { animation: m-tick 360ms var(--spring); }          /* the minute rolls over */
+:root[data-motion="expressive"] .page.anim .cal-day { animation: m-pop 260ms var(--spring) backwards; animation-delay: calc(90ms + var(--n, 0) * 4ms); }
+:root[data-motion="expressive"] #wrap.open .cal-day.today { animation: m-ping 2.8s ease-out 1.2s infinite; }
+:root[data-motion="expressive"] .cal-grid.flip-fwd  { animation: m-cal-month-fwd 280ms var(--spring); }
+:root[data-motion="expressive"] .cal-grid.flip-back { animation: m-cal-month-back 280ms var(--spring); }
+:root[data-motion="expressive"] .cal-day:hover:not(.today) { background: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent); }
+:root[data-motion="expressive"] .hc:hover .tile svg { animation: m-wiggle 520ms ease-out; }
+/* Weather icon moves like the weather: the sun turns, clouds drift, rain bobs, snow sways */
+:root[data-motion="expressive"] #wrap.open .hc-wx .tile svg { animation: m-float 3.4s ease-in-out infinite; }
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="sun"] .tile svg { animation: m-spin-slow 22s linear infinite; }
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="moon"] .tile svg { animation: m-sway 4.5s ease-in-out infinite; }
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="cloud"] .tile svg,
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="partly"] .tile svg,
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="fog"] .tile svg { animation: m-drift 4s ease-in-out infinite; }
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="rain"] .tile svg,
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="storm"] .tile svg { animation: m-fall 1.1s ease-in-out infinite; }
+:root[data-motion="expressive"] #wrap.open .hc-wx[data-wx*="snow"] .tile svg { animation: m-sway 2.6s ease-in-out infinite; }
+:root[data-motion="expressive"] #wrap.open .hc-cd .tile svg { animation: m-sway 3.2s ease-in-out infinite; transform-origin: 20% 90%; }
+:root[data-motion="expressive"] .qbtn[aria-pressed="true"] svg { animation: m-icon-bounce 420ms var(--spring); }
+
+/* ---- Weather page ---- */
+:root[data-motion="expressive"] .page.anim .hour { animation: m-pop-up 320ms var(--spring) backwards; animation-delay: calc(110ms + var(--n, 0) * 40ms); }
+:root[data-motion="expressive"] .page.anim #w-icon { animation: m-icon-bounce 520ms var(--spring) 120ms backwards; }
+:root[data-motion="expressive"] #wrap.open #p-weather.active #w-icon { animation: m-float 3.6s ease-in-out 700ms infinite; }
+
+/* ---- Music ---- */
+:root[data-motion="expressive"] #wrap[data-mode="media"] #m-img { animation: m-ken 9s ease-in-out infinite alternate; }
+:root[data-motion="expressive"] .m-text.txt-swap > * { animation: m-text-in 380ms var(--spring) backwards; }
+:root[data-motion="expressive"] .m-text.txt-swap > :nth-child(2) { animation-delay: 60ms; }
+:root[data-motion="expressive"] #wrap[data-mode="media"] .btn.filled[data-playing="true"] { animation: m-pulse 2.4s ease-in-out infinite; }
+
+/* ---- Timer ---- */
+:root[data-motion="expressive"] #p-timer:has(#t-start[data-running="true"]) .ring { animation: m-ring-pulse 2s ease-in-out infinite; }
+:root[data-motion="expressive"] .chip[aria-pressed="true"] { animation: m-copied 360ms var(--spring); }
+
+/* ---- Usage: bars and fills grow, tiles pop one by one ---- */
+:root[data-motion="expressive"] .page.anim .w-stats .stat { animation: m-pop-up 320ms var(--spring) backwards; animation-delay: calc(100ms + var(--n, 0) * 40ms); }
+.w-stats .stat:nth-child(1) { --n: 0; } .w-stats .stat:nth-child(2) { --n: 1; } .w-stats .stat:nth-child(3) { --n: 2; }
+:root[data-motion="expressive"] .page.anim .u-fill { animation: m-grow-x 620ms var(--spring) backwards; transform-origin: 0 50%; animation-delay: 220ms; }
+:root[data-motion="expressive"] .page.anim .u-row:nth-child(2) .u-fill { animation-delay: 300ms; }
+:root[data-motion="expressive"] .page.anim .u-col .u-bar { animation: m-grow-y 480ms var(--spring) backwards; transform-origin: 50% 100%; animation-delay: calc(140ms + var(--n, 0) * 35ms); }
+:root[data-motion="expressive"] .page.anim .spark i { animation: m-grow-y 420ms var(--spring) backwards; transform-origin: 50% 100%; animation-delay: calc(240ms + var(--n, 0) * 30ms); }
+:root[data-motion="expressive"] .u-pace:not(:empty) { animation: m-nudge 5s ease-in-out 1.5s infinite; }
+
+/* ---- Clipboard ---- */
+:root[data-motion="expressive"] .page.anim .cb-item { animation: m-row-in 300ms var(--spring) backwards; animation-delay: calc(90ms + var(--n, 0) * 32ms); }
+:root[data-motion="expressive"] .cb-item.copied { animation: m-copied 420ms var(--spring); }
+
+/* ---- Claude sessions ---- */
+:root[data-motion="expressive"] .page.anim .ag-row { animation: m-row-in 300ms var(--spring) backwards; animation-delay: calc(90ms + var(--n, 0) * 40ms); }
+:root[data-motion="expressive"] .ag-row[data-st="working"] .ag-st::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: currentColor; display: inline-block; flex: none; animation: m-dot 1.2s ease-in-out infinite; }
+:root[data-motion="expressive"] .ag-row[data-st="approval"] .ag-st,
+:root[data-motion="expressive"] .ag-row[data-st="waiting"] .ag-st { animation: m-nudge 3s ease-in-out infinite; }
+:root[data-motion="expressive"] .ag-row[data-st="quiet"] .ag-st { animation: m-pulse 2.2s ease-in-out infinite; }
+
+/* ---- Approval card: it arrives with a pop, the tool tag bounces, and the buttons rise one after another ---- */
+:root[data-motion="expressive"] .page.anim .ap-tool { animation: m-pop 300ms var(--spring) 160ms backwards; }
+:root[data-motion="expressive"] .page.anim .ap-actions > :nth-child(1) { animation: m-pop-up 300ms var(--spring) 160ms backwards; }
+:root[data-motion="expressive"] .page.anim .ap-actions > :nth-child(2) { animation: m-pop-up 300ms var(--spring) 200ms backwards; }
+:root[data-motion="expressive"] .page.anim .ap-actions > :nth-child(3) { animation: m-pop-up 300ms var(--spring) 240ms backwards; }
+
+/* ================================================================ Off / Calm */
+/* Calm keeps the original motion only (nothing above applies). Off: every transition and animation is instant, loops run once. */
+:root[data-motion="off"] *, :root[data-motion="off"] *::before, :root[data-motion="off"] *::after {
+  animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important;
+  transition-duration: 1ms !important; transition-delay: 0s !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page.anim .cal-day, .page.anim .hour, .page.anim .cb-item, .page.anim .ag-row, .page.anim .u-fill, .page.anim .u-bar, .nav > * { animation: none !important; }
+}
