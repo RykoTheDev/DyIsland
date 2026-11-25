@@ -57,7 +57,7 @@
 
 /* The resting pill breathes very slightly while nothing is going on (stops as soon as anything happens) */
 :root[data-motion="expressive"] #wrap[data-mode="idle"]:not(.open):not(.has-notice):not([data-eyes]):not(.autohidden) #island {
-  animation: m-breathe 6s ease-in-out infinite; transform-origin: 50% 0;
+  animation: m-breathe 6s ease-in-out 5; transform-origin: 50% 0;   /* five breaths (30 s), then rest: a compositor that is never idle costs battery */
 }
 
 /* Alerts: the whole island wobbles (existing) and the toast icon and text spring in */
@@ -126,13 +126,6 @@
 :root[data-motion="expressive"] .page.anim .cb-item { animation: m-row-in 300ms var(--spring) backwards; animation-delay: calc(90ms + var(--n, 0) * 32ms); }
 :root[data-motion="expressive"] .cb-item.copied { animation: m-copied 420ms var(--spring); }
 
-/* ---- Claude sessions ---- */
-:root[data-motion="expressive"] .page.anim .ag-row { animation: m-row-in 300ms var(--spring) backwards; animation-delay: calc(90ms + var(--n, 0) * 40ms); }
-:root[data-motion="expressive"] .ag-row[data-st="working"] .ag-st::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: currentColor; display: inline-block; flex: none; animation: m-dot 1.2s ease-in-out infinite; }
-:root[data-motion="expressive"] .ag-row[data-st="approval"] .ag-st,
-:root[data-motion="expressive"] .ag-row[data-st="waiting"] .ag-st { animation: m-nudge 3s ease-in-out infinite; }
-:root[data-motion="expressive"] .ag-row[data-st="quiet"] .ag-st { animation: m-pulse 2.2s ease-in-out infinite; }
-
 /* ---- Approval card: it arrives with a pop, the tool tag bounces, and the buttons rise one after another ---- */
 :root[data-motion="expressive"] .page.anim .ap-tool { animation: m-pop 300ms var(--spring) 160ms backwards; }
 :root[data-motion="expressive"] .page.anim .ap-actions > :nth-child(1) { animation: m-pop-up 300ms var(--spring) 160ms backwards; }
@@ -146,5 +139,16 @@
   transition-duration: 1ms !important; transition-delay: 0s !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  .page.anim .cal-day, .page.anim .hour, .page.anim .cb-item, .page.anim .ag-row, .page.anim .u-fill, .page.anim .u-bar, .nav > * { animation: none !important; }
+  .page.anim .cal-day, .page.anim .hour, .page.anim .cb-item, .page.anim .u-fill, .page.anim .u-bar, .nav > * { animation: none !important; }
 }
+
+/* ================================================================ Choreography (Expressive) */
+/* Closing: the content lets go first (90 ms), then the shell shrinks around nothing. Opening is untouched. */
+:root[data-motion="expressive"] #wrap:not(.open):not(.has-notice) { transition-delay: 50ms, 50ms, 0s, 0s; }
+:root[data-motion="expressive"] #wrap:not(.open) .full { transition-duration: 90ms; transition-delay: 0s; }
+
+/* Pressing the pill squashes it a little, like pushing a soft button; letting go springs back as it opens */
+:root[data-motion="expressive"] #island { transform-origin: inherit; transition: border-radius var(--d-close) var(--ease-close), scale var(--d-item) var(--ease-press); }
+:root[data-motion="expressive"] #wrap.open #island,
+:root[data-motion="expressive"] #wrap.has-notice #island { transition: border-radius var(--d-open) var(--ease-open), scale var(--d-item) var(--ease-press); }
+:root[data-motion="expressive"] #wrap:not(.open):not(.has-notice):not(.autohidden) #island:active { scale: .94 .86; }

@@ -3,9 +3,11 @@
 // anything invalid falls back to its default and the bad file is kept next to it as settings.json.corrupt.
 const fs = require('fs');
 const path = require('path');
+const { cleanUrl } = require('./main/ics');
+const DNSP = require('./dns-profiles');
 
 const EDGES = ['top', 'left', 'right'];
-const TAB_IDS = ['home', 'music', 'weather', 'timer', 'usage', 'clipboard', 'agents'];
+const TAB_IDS = ['home', 'music', 'weather', 'timer', 'usage', 'clipboard'];
 const HOTKEYS = ['Control+Alt+Space', 'Control+Alt+D', 'Control+Alt+I', 'Control+Shift+Space', ''];   // '' = off
 const SETTINGS_HOTKEYS = ['Control+Alt+F10', 'Control+Alt+F9', 'Control+Alt+,', ''];   // no letters: on many keyboards AltGr is Ctrl+Alt and would steal a typed letter                    // opens the settings window ('' = off)
 const LIMITS = {                                   // [min, max] in px; the minimums are what the pages can lay out without overflowing
@@ -21,14 +23,14 @@ const DEFAULTS = Object.freeze({
   autoHide: false,                                 // hide the island until the pointer touches the top centre
   hideInFullscreen: true,                          // hide it over full-screen apps and games
   theme: { mode: 'auto', variant: 'vibrant', seed: '#1FB5A5', preset: 'teal' },
-  size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 } },
+  size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 }, adaptive: true },   // adaptive: some pages open the island a little smaller or bigger
   tabs: TAB_IDS.slice(),                           // order of the tab buttons in the expanded island
   hiddenTabs: ['clipboard'],                       // tabs that exist but are switched off
   mascot: { enabled: true, delay: 8 },             // eyes appear after `delay` seconds of idling
   hotkey: 'Control+Alt+Space',
   settingsHotkey: '',                              // opens Settings from anywhere (off until you pick one)
   quiet: { dnd: false, mute: false },              // do not disturb (no toasts, no approval cards, no chimes) / just mute the chimes
-  clipboard: { enabled: false, max: 12 },          // clipboard history is opt-in and kept in memory only
+  clipboard: { enabled: false, max: 12, images: false, paste: false, persistPins: false },   // history is opt-in and kept in memory; the three extras are opt-in too
   battery: { warn: true },
   units: { temp: 'c', clock: 'auto' },
   calendar: { weekStart: 'auto' },
@@ -38,6 +40,16 @@ const DEFAULTS = Object.freeze({
   agents: { quietAlert: false },                  // tell me when a Claude session has gone quiet
   approvals: { enabled: true, wait: 30 },          // answer Claude Code permission prompts on the island (needs the hook); seconds to wait
   usage: { forecast: true, resetAlert: true },     // pace warning and limit-reset alert
+  google: { clientId: '', clientSecret: '', calendar: true, tasks: true, mail: true, mailToast: true },   // Google Calendar / Tasks / Gmail (read-only). The client id and secret are yours (a Desktop-app OAuth client): never exported
+  events: { url: '' },                             // a calendar (.ics) link for the Home card, calendar dots and the "starting soon" chip. Secret: never exported
+  notifications: { mirror: false, apps: '' },     // show the Windows notifications that appear on the island (opt-in); apps: only these ("Slack, Outlook"), empty = all
+  shortcuts: { apps: [] },                         // the Home page's App shortcuts card: [{ name, path }]
+  dnsp: { presets: [], custom: [] },               // DNS providers to offer in the quick-actions tile (installed once, with Windows approval): preset ids + up to 2 custom ones
+  hud: { volume: true },                           // show the volume on the island when it changes (the Windows pop-up still appears too)
+  devices: { toasts: true },                       // a toast when a Bluetooth device connects or the charger is plugged in
+  meetings: { dnd: false },                        // Do not disturb switches itself on while an app uses the camera or microphone
+  music: { artColors: true },                      // the island takes its colours from the cover of what is playing (not under a named theme)
+  updates: { check: true },                        // look for a new version on GitHub (the installed build only)
 });
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -61,7 +73,20 @@ function sanitizePlacement(p) {
   return { edge: oneOf(r.edge, EDGES, d.edge), monitor: m === 'primary' || m === 'all' || (typeof m === 'string' && /^\d{1,15}$/.test(m)) ? m : d.monitor };
 }
 
-const CARDS = ['weather', 'music', 'countdown', 'none'];
+const CARDS = ['weather', 'music', 'countdown', 'events', 'apps', 'mail', 'none'];
+// App shortcuts for the Home card: a program, shortcut or link you chose with the file picker. Absolute Windows paths to a few kinds of file only.
+const APP_EXT = /\.(?:exe|lnk|url|appref-ms)$/i;                          // programs, shortcuts and links: not scripts
+function sanitizeApps(v) {
+  const out = [];
+  for (const a of (isObj(v) && Array.isArray(v.apps) ? v.apps : []).slice(0, 8)) {
+    if (!isObj(a) || typeof a.path !== 'string') continue;
+    const p = a.path.trim();
+    if (p.length > 260 || !/^[A-Za-z]:\\[^<>"|?*\x00-\x1f]+$/.test(p) || !APP_EXT.test(p) || out.some((x) => x.path.toLowerCase() === p.toLowerCase())) continue;
+    const name = (typeof a.name === 'string' ? a.name : '').replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 30) || p.split('\\').pop().replace(APP_EXT, '');
+    out.push({ name, path: p });
+  }
+  return { apps: out };
+}
 function sanitizeHome(h) {
   const r = isObj(h) ? h : {}, d = DEFAULTS.home, cd = isObj(r.countdown) ? r.countdown : {};
   const first = oneOf(r.first, CARDS, d.first);
@@ -72,6 +97,20 @@ function sanitizeHome(h) {
     calendar: bool(r.calendar, d.calendar), side: oneOf(r.side, ['left', 'right'], d.side), first, second,
     countdown: { label: typeof cd.label === 'string' ? cd.label.replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 40) : '', date },
   };
+}
+
+// DNS providers chosen in Settings: known preset ids, and custom entries that pass the same checks the elevated setup applies
+function sanitizeDnsp(v) {
+  const r = isObj(v) ? v : {};
+  const presets = (Array.isArray(r.presets) ? r.presets : []).filter((id, i, a) => DNSP.PRESETS.some((p) => p.id === id) && a.indexOf(id) === i).slice(0, DNSP.MAX_PROFILES);
+  const str = (x, n) => (typeof x === 'string' ? x.replace(/[\x00-\x1f]/g, ' ').trim().slice(0, n) : '');
+  const custom = [];
+  for (const c of (Array.isArray(r.custom) ? r.custom : []).slice(0, 2)) {                  // (custom entries count towards the 8: presets give way)
+    if (!isObj(c)) continue;
+    const e = { name: str(c.name, 40), v4a: str(c.v4a, 15), v4b: str(c.v4b, 15), v6a: str(c.v6a, 39), v6b: str(c.v6b, 39), doh: str(c.doh, 200) };
+    if (DNSP.buildProfiles({ presets: [], custom: [e] }).length) custom.push(e);
+  }
+  return { presets: presets.slice(0, Math.max(0, DNSP.MAX_PROFILES - custom.length)), custom };
 }
 
 function sanitize(raw) {
@@ -106,6 +145,7 @@ function sanitize(raw) {
     size: {
       idle: { w: clamp(idle.w, LIMITS.idleW, d.size.idle.w), h: clamp(idle.h, LIMITS.idleH, d.size.idle.h) },
       open: { w: clamp(open.w, LIMITS.openW, d.size.open.w), h: clamp(open.h, LIMITS.openH, d.size.open.h) },
+      adaptive: bool(size.adaptive, d.size.adaptive),
     },
     tabs, hiddenTabs: hidden,
     mascot: {
@@ -118,6 +158,9 @@ function sanitize(raw) {
     clipboard: {
       enabled: bool(isObj(r.clipboard) ? r.clipboard.enabled : undefined, d.clipboard.enabled),
       max: clamp(isObj(r.clipboard) ? r.clipboard.max : undefined, [5, 30], d.clipboard.max),
+      images: bool(isObj(r.clipboard) ? r.clipboard.images : undefined, d.clipboard.images),
+      paste: bool(isObj(r.clipboard) ? r.clipboard.paste : undefined, d.clipboard.paste),
+      persistPins: bool(isObj(r.clipboard) ? r.clipboard.persistPins : undefined, d.clipboard.persistPins),
     },
     battery: { warn: bool(isObj(r.battery) ? r.battery.warn : undefined, d.battery.warn) },
     units: {
@@ -130,6 +173,21 @@ function sanitize(raw) {
     agents: { quietAlert: bool(isObj(r.agents) ? r.agents.quietAlert : undefined, d.agents.quietAlert) },
     approvals: { enabled: bool(isObj(r.approvals) ? r.approvals.enabled : undefined, d.approvals.enabled), wait: clamp(isObj(r.approvals) ? r.approvals.wait : undefined, [10, 120], d.approvals.wait) },
     usage: { forecast: bool(isObj(r.usage) ? r.usage.forecast : undefined, d.usage.forecast), resetAlert: bool(isObj(r.usage) ? r.usage.resetAlert : undefined, d.usage.resetAlert) },
+    google: {
+      clientId: typeof (isObj(r.google) && r.google.clientId) === 'string' && /^[A-Za-z0-9._~-]{0,200}$/.test(r.google.clientId.trim()) ? r.google.clientId.trim() : '',
+      clientSecret: typeof (isObj(r.google) && r.google.clientSecret) === 'string' && /^[A-Za-z0-9._~-]{0,120}$/.test(r.google.clientSecret.trim()) ? r.google.clientSecret.trim() : '',
+      calendar: bool(isObj(r.google) ? r.google.calendar : undefined, d.google.calendar), tasks: bool(isObj(r.google) ? r.google.tasks : undefined, d.google.tasks),
+      mail: bool(isObj(r.google) ? r.google.mail : undefined, d.google.mail), mailToast: bool(isObj(r.google) ? r.google.mailToast : undefined, d.google.mailToast),
+    },
+    events: { url: cleanUrl(isObj(r.events) ? r.events.url : '') },
+    notifications: { mirror: bool(isObj(r.notifications) ? r.notifications.mirror : undefined, d.notifications.mirror), apps: typeof (isObj(r.notifications) && r.notifications.apps) === 'string' ? r.notifications.apps.replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 200) : '' },
+    shortcuts: sanitizeApps(r.shortcuts),
+    dnsp: sanitizeDnsp(r.dnsp),
+    hud: { volume: bool(isObj(r.hud) ? r.hud.volume : undefined, d.hud.volume) },
+    devices: { toasts: bool(isObj(r.devices) ? r.devices.toasts : undefined, d.devices.toasts) },
+    meetings: { dnd: bool(isObj(r.meetings) ? r.meetings.dnd : undefined, d.meetings.dnd) },
+    music: { artColors: bool(isObj(r.music) ? r.music.artColors : undefined, d.music.artColors) },
+    updates: { check: bool(isObj(r.updates) ? r.updates.check : undefined, d.updates.check) },
     calendar: { weekStart: oneOf(isObj(r.calendar) ? r.calendar.weekStart : undefined, ['auto', 'mon', 'sun', 'sat'], d.calendar.weekStart) },
   };
 }

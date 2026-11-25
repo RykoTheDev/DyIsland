@@ -50,7 +50,7 @@
   }
 
   // ---- DOM ----
-  function mount(el, { getWeekStart }) {
+  function mount(el, { getWeekStart, getEvents }) {
     const view = { y: new Date().getFullYear(), m: new Date().getMonth() };
     el.innerHTML = `
       <div class="cal-head">
@@ -76,6 +76,8 @@
         s.className = 'cal-day' + (c.inMonth ? '' : ' out') + (c.iso === today ? ' today' : '') + (c.weekday >= 6 ? ' weekend' : '');
         s.textContent = String(c.day); s.style.setProperty('--n', String(cells.length));
         if (c.iso === today) s.setAttribute('aria-current', 'date');
+        const evs = getEvents ? getEvents(c.iso) : null;                      // the titles of what is on that day (for the dot and its tooltip)
+        if (evs && evs.length) { s.classList.add('has-ev'); s.dataset.tip = evs.slice(0, 6).join('\n') + (evs.length > 6 ? '\n+' + (evs.length - 6) + ' more' : ''); s.dataset.iso = c.iso; }
         cells.push(s);
       }
       grid.replaceChildren(...cells);

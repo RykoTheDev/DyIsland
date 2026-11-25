@@ -18,13 +18,20 @@
 .nav .lbl { font: var(--md-sys-typescale-label-large-emphasized); }
 
 /* ================================================================ Connected button groups: small inner corners, full outer corners; the toggled one goes fully round */
-.m-ctrl { gap: 2px; }
-.m-ctrl .btn { height: 48px; border-radius: var(--md-sys-shape-corner-small); }
-.m-ctrl .btn.tonal:first-child { border-radius: 24px 8px 8px 24px; }
-.m-ctrl .btn.tonal:last-child { border-radius: 8px 24px 24px 8px; }
-.m-ctrl .btn.filled { width: 96px; border-radius: var(--md-sys-shape-corner-small); }
-.m-ctrl .btn.filled[data-playing="true"] { border-radius: 24px; }
-.m-ctrl .btn:active { border-radius: var(--md-sys-shape-corner-small); }
+/* Music controls: one tidy row. Previous / next are even tonal squircles, play is the big pill (it squares off a little while playing), shuffle and repeat
+   are small toggles at the ends. The row never wraps: the side toggles step aside when the column is narrow. */
+.m-ctrl { gap: 5px; }
+.m-ctrl .btn { height: 52px; border-radius: 16px; }
+.m-ctrl .btn.tonal { width: 54px; }
+.m-ctrl .btn.side { width: 38px; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.m-ctrl .btn.side[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.m-ctrl .btn.side[hidden] { display: none; }
+.m-ctrl .btn.filled { width: 80px; border-radius: 26px; }
+.m-ctrl .btn.filled[data-playing="true"] { border-radius: 18px; }
+.m-ctrl .btn:active { border-radius: 12px; }
+.m-ctrl .btn[data-mode="Track"]::after { content: '1'; position: absolute; font: 800 9px/1 sans-serif; right: 8px; bottom: 11px; }
+.m-body { container-type: inline-size; }
+@container (max-width: 289px) { .m-ctrl .btn.side { display: none; } }
 
 .t-ctrl { gap: 2px; }
 .btn-start { border-radius: 28px 8px 8px 28px; font: var(--md-sys-typescale-title-medium-emphasized); }
@@ -49,16 +56,10 @@
 
 /* ================================================================ Wavy progress (usage): a moving wave on the filled part, a plain line for the rest, a dot at the end */
 .u-row { gap: 12px; }
-.u-track { position: relative; flex: 1; height: 12px; border-radius: 0; background: none; overflow: visible; }
-.u-track::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 4px; border-radius: 2px; background: var(--md-sys-color-secondary-container); }
-.u-track::after { content: ''; position: absolute; right: 0; top: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--md-sys-color-primary); }
-.u-fill {
-  position: relative; z-index: 1; height: 12px; border-radius: 0; background: var(--md-sys-color-primary);
-  -webkit-mask: var(--dy-wave) repeat-x 0 0 / 16px 12px; mask: var(--dy-wave) repeat-x 0 0 / 16px 12px;
-}
-:root[data-motion="expressive"] #wrap.open .u-fill { animation: dy-wave-flow 1.4s linear infinite; }
-@keyframes dy-wave-flow { to { -webkit-mask-position: 16px 0; mask-position: 16px 0; } }
-.page.anim .u-fill { animation: none; }
+/* (drawn on a canvas by app.js with wavy.js: a masked tile left seams and notches. #u-f5 / #u-fw only carry the value.) */
+.u-track { position: relative; flex: 1; height: 16px; border-radius: 0; background: none; overflow: visible; }
+.u-fill { display: none; }
+.u-cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 /* ================================================================ Loading indicator: a shape that morphs and turns (replaces the thin spinner) */
 .ldr { display: none; width: 20px; height: 20px; flex: none; background: var(--md-sys-color-primary); border-radius: 50%; }
@@ -75,10 +76,10 @@
 
 /* ================================================================ Layout rhythm: every page uses the same spacing steps */
 .h-cal, .hc, .stat, .u-cta, .u-bars { border-radius: var(--md-sys-shape-corner-large-increased); }
-.cb-item, .ag-row, .hour { border-radius: var(--md-sys-shape-corner-medium); }
+.cb-item, .hour { border-radius: var(--md-sys-shape-corner-medium); }
 .ap-card { border-radius: var(--md-sys-shape-corner-large-increased); }
 .ap-btn { border-radius: var(--md-sys-shape-corner-full); font: var(--md-sys-typescale-label-large-emphasized); }
-.ap-tool, .ag-st { border-radius: var(--md-sys-shape-corner-full); }
+.ap-tool { border-radius: var(--md-sys-shape-corner-full); }
 .ag-st { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 76px; }          /* one width for every status, the working dot sits beside the word */
 .ap-detail { font-family: var(--dy-font-code); font-variation-settings: normal; }
 .cb-head .title-medium, .ap-head .title-medium { font: var(--md-sys-typescale-title-medium-emphasized); }

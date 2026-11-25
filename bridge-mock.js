@@ -26,7 +26,7 @@ if (!window.islandAPI) {
     : ARTQ === 'bad' ? 'data:image/jpeg;base64,AAAAAAAAAAAA' : '';
   let listener = () => {};
   const send = () => listener({
-    title: 'Paper Sky', artist: 'Lumen Coast', status,
+    title: 'Paper Sky', artist: 'Lumen Coast', status, shuffle: false, repeat: 'None', app: 'Spotify.exe',
     pos: pos + (status === 'Playing' ? (performance.now() - start) / 1000 : 0), dur: 193, key: 'paper-sky',
     ...(ART ? { art: ART } : {}),
   });
@@ -37,10 +37,10 @@ if (!window.islandAPI) {
   const DEFAULT_SETTINGS = {
     motion: 'expressive', placement: { edge: 'top', monitor: 'primary' }, dns: { tile: true }, quiet: { dnd: false, mute: false }, settingsHotkey: '', openOn: 'click', autoHide: false, hideInFullscreen: true,
     theme: { mode: 'auto', variant: 'vibrant', seed: '#1FB5A5', preset: 'teal' },
-    size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 } },
-    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard', 'agents'], hiddenTabs: ['clipboard'],
-    mascot: { enabled: true, delay: 8 }, hotkey: 'Control+Alt+Space', clipboard: { enabled: false, max: 12 },
-    battery: { warn: true }, units: { temp: 'c', clock: 'auto' }, calendar: { weekStart: 'auto' }, usage: { forecast: true, resetAlert: true }, approvals: { enabled: true, wait: 30 }, agents: { quietAlert: false }, split: { enabled: true, lead: 'auto' }, privacy: { dot: true }, home: { calendar: true, side: 'left', first: 'weather', second: 'music', countdown: { label: '', date: '' } },
+    size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 }, adaptive: true },
+    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard'], hiddenTabs: ['clipboard'],
+    mascot: { enabled: true, delay: 8 }, hotkey: 'Control+Alt+Space', clipboard: { enabled: false, max: 12, images: false, paste: false, persistPins: false },
+    battery: { warn: true }, units: { temp: 'c', clock: 'auto' }, calendar: { weekStart: 'auto' }, usage: { forecast: true, resetAlert: true }, approvals: { enabled: true, wait: 30 }, agents: { quietAlert: false }, split: { enabled: true, lead: 'auto' }, privacy: { dot: true }, music: { artColors: true }, shortcuts: { apps: [{ name: 'Notepad', path: 'C:\\Windows\\notepad.exe' }, { name: 'Calculator', path: 'C:\\Windows\\System32\\calc.exe' }] }, dnsp: { presets: [], custom: [] }, google: { clientId: '', clientSecret: '', calendar: true, tasks: true, mail: true, mailToast: true }, events: { url: '' }, notifications: { mirror: false, apps: '' }, hud: { volume: true }, devices: { toasts: true }, meetings: { dnd: false }, updates: { check: true }, home: { calendar: true, side: 'left', first: 'weather', second: 'music', countdown: { label: '', date: '' } },
   };
   const qs = new URLSearchParams(location.search);
   let settings = DEFAULT_SETTINGS;
@@ -48,10 +48,25 @@ if (!window.islandAPI) {
   if (qs.get('theme')) settings = merge(settings, { theme: { mode: qs.get('theme') } });
   const settingsListeners = [];
   window.__settings = (patch) => { settings = merge(settings, patch); settingsListeners.forEach((cb) => cb(settings)); return settings; };
-  let clipItems = qs.get('clip') ? ['npm run build:theme', 'https://example.com/a/long/link/that/keeps/going', 'Meeting moved to 15:30', 'Ctrl+Alt+Space'] : [];
+  const TINY = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="54"><rect width="96" height="54" fill="#2a7f74"/><circle cx="48" cy="27" r="14" fill="#f2c14e"/></svg>');
+  let clipItems = qs.get('clip') ? [
+    { id: 1, kind: 'text', text: 'npm run build:theme', pinned: true }, { id: 2, kind: 'image', thumb: TINY, pinned: false },
+    { id: 3, kind: 'text', text: 'https://example.com/a/long/link/that/keeps/going', pinned: false }, { id: 4, kind: 'text', text: 'Meeting moved to 15:30', pinned: false }, { id: 5, kind: 'text', text: 'Ctrl+Alt+Space', pinned: false }] : [];
 
   window.islandAPI = {
-    capture() {}, input() {},
+    capture() {}, input(v) { window.__input = v; }, reportSize(sz) { window.__size = sz; },
+    onVolume(cb) { window.__volume = cb; },
+    // Preview only: ?events=1 shows a few events; window.__events({ list, status }) drives it. window.__opened collects the ids opened.
+    onEvents(cb) { window.__events = cb; if (new URLSearchParams(location.search).get('events')) { const t = Date.now(); setTimeout(() => cb({ status: 'ok', list: [
+      { id: 'a', title: 'Design review', start: t + 4 * 60000, end: t + 34 * 60000, allDay: false, location: '', link: 'https://meet.google.com/abc-defg-hij' },
+      { id: 'b', title: 'Lunch with Sam', start: t + 86400000 + 3600000, end: t + 86400000 + 7200000, allDay: false, location: 'Cafe', link: '' },
+      { id: 'tk', title: 'File report', start: new Date(new Date().getFullYear(), new Date().getMonth(), 28).getTime(), end: new Date(new Date().getFullYear(), new Date().getMonth(), 28).getTime(), allDay: true, location: 'My tasks', link: '', kind: 'task' },
+      { id: 'c', title: 'Holiday', start: new Date(new Date().getFullYear(), new Date().getMonth(), 28).getTime(), end: new Date(new Date().getFullYear(), new Date().getMonth(), 29).getTime(), allDay: true, location: '', link: '' } ] }), 300); } },
+    // Preview only: ?google=1 shows a connected account with mail and a task; window.__google({...}) drives it
+    onGoogle(cb) { window.__google = cb; if (new URLSearchParams(location.search).get('google')) setTimeout(() => cb({ status: 'ok', error: '', mail: { unread: 7, latest: [{ id: 'm1', from: 'Sam Lee', subject: 'Lunch on Friday?' }, { id: 'm2', from: 'GitHub', subject: 'New sign-in to your account' }] } }), 400); },
+    async googleState() { return { status: new URLSearchParams(location.search).get('google') ? 'ok' : 'off', mail: { unread: 0, latest: [] }, error: '' }; },
+    async googleConnect() { window.__googleConnect = true; return { ok: true }; }, async googleDisconnect() { window.__googleDisconnect = true; return { ok: true }; }, googleOpen(w) { window.__googleOpen = w; },
+    async eventsGet() { return { list: [], status: 'off' }; }, openEvent(id) { (window.__opened = window.__opened || []).push(id); }, setVolume(p) { window.__volSet = p; }, setMute(m) { window.__muted = m; }, quick(k) { (window.__quick = window.__quick || []).push(k); },
     getSettings: async () => settings,
     setSettings: async (patch) => window.__settings(patch),
     resetSettings: async () => { settings = DEFAULT_SETTINGS; settingsListeners.forEach((cb) => cb(settings)); return settings; },
@@ -62,8 +77,10 @@ if (!window.islandAPI) {
     hotkeyStatus: async () => ({ accelerator: settings.hotkey, ok: true }), onHotkeyStatus() {},
     setKeepAwake: async (v) => !!v,
     clipboardList: async () => clipItems, onClipboard(cb) { window.__clip = cb; },
-    clipboardCopy: async () => true, clipboardClear: async () => { clipItems = []; if (window.__clip) window.__clip([]); return true; },
-    media(cmd) {
+    clipboardCopy: async (id) => { window.__copied = id; return true; }, clipboardPaste: async (id) => { window.__pasted = id; return true; },
+    clipboardPin: async (id) => { clipItems = clipItems.map((x) => (x.id === id ? { ...x, pinned: !x.pinned } : x)); clipItems = [...clipItems.filter((x) => x.pinned), ...clipItems.filter((x) => !x.pinned)]; if (window.__clip) window.__clip(clipItems); return true; },
+    clipboardClear: async () => { clipItems = clipItems.filter((x) => x.pinned); if (window.__clip) window.__clip(clipItems); return true; },
+    media(cmd) { (window.__mediaCmds = window.__mediaCmds || []).push(cmd);
       if (cmd === 'toggle') { status = status === 'Playing' ? 'Paused' : 'Playing'; }
       setTimeout(send, 50);
     },
@@ -108,6 +125,13 @@ if (!window.islandAPI) {
     // Preview only: ?dns=on|off|notinstalled|custom sets the NextDNS state; window.__dnsState drives it
     async dnsStatus() { return { state: window.__dnsState || new URLSearchParams(location.search).get('dns') || 'on' }; },
     async dnsToggle() { const cur = window.__dnsState || new URLSearchParams(location.search).get('dns') || 'on'; window.__dnsState = cur === 'on' ? 'off' : 'on'; window.__dnsToggled = (window.__dnsToggled || 0) + 1; return { state: window.__dnsState }; },
+    // Preview only: ?dnsp=installed pretends the provider switch is set up
+    async appIcons() { const ic = (c) => 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="8" fill="' + c + '"/></svg>'); return [ic('#3b7ddd'), ic('#2a9d8f')]; },
+    openApp(i) { (window.__apps = window.__apps || []).push(i); }, async pickApp() { window.__picked = true; return { ok: true }; },
+    async dnspPresets() { return [{ id: 'cloudflare', name: 'Cloudflare', note: 'Fast and private' }, { id: 'google', name: 'Google', note: 'Public DNS' }, { id: 'adguard', name: 'AdGuard', note: 'Blocks ads and trackers' }]; },
+    async dnspStatus() { const on = new URLSearchParams(location.search).get('dnsp'); if (!on) return { state: 'notinstalled', profiles: [], id: '' }; const cur = window.__dnspId || ''; return { state: cur ? 'profile' : 'auto', id: cur, profiles: [{ id: 'cloudflare', name: 'Cloudflare', slot: 1 }, { id: 'google', name: 'Google', slot: 2 }, { id: 'adguard', name: 'AdGuard', slot: 3 }] }; },
+    async dnspUse(which) { window.__dnspId = which === 'auto' ? '' : which; return this.dnspStatus(); },
+    async dnspSetup() { window.__dnspSetup = true; return { ok: true }; }, async dnspRemove() { window.__dnspRemove = true; return { ok: true }; },
     async dnsSetup() { window.__dnsSetup = true; return { ok: true }; },
     async dnsRemove() { window.__dnsRemove = true; return { ok: true }; },
     // Preview only: settings tools
@@ -127,6 +151,8 @@ if (!window.islandAPI) {
     pauseIsland(m) { window.__paused = m; }, restartApp() { window.__restart = true; }, quitApp() { window.__quit = true; },
     async approvals() { return []; },
     approve(id, behavior) { this.__answer(id, behavior); },
+    async agentsList() { return [{ id: 'gemini', name: 'Gemini CLI', where: '~/.gemini/settings.json', note: 'Merge the hooks block' }, { id: 'codex', name: 'Codex CLI', where: '~/.codex/config.toml', note: 'Add this line' }]; },
+    async agentsCopy(id) { window.__agentCopied = id; return true; },
     async copyHooks() { return true; },
     // Preview only: ?notice=done or ?notice=attention shows a toast after a moment
     onNotice(cb) {
@@ -143,9 +169,18 @@ if (!window.islandAPI) {
     },
     // ?media=none: nothing playing (the island is idle, so the mascot can appear)
     onMedia(cb) { listener = cb; setTimeout(send, 200); setInterval(send, 1000); if (qs.get('media') === 'none') listener = () => {}, setTimeout(() => cb({ none: true }), 200); },
-    async weather(city) {
+    async weatherSearch(text) {
+      const q = String(text || '').trim(); if (q.length < 2) return [];
+      return [{ name: q, admin1: 'England', cc: 'GB', lat: 51.5, lon: -0.12 }, { name: q, admin1: 'Ontario', cc: 'CA', lat: 42.98, lon: -81.25 }, { name: q + ' Heights', admin1: 'Ohio', cc: 'US', lat: 41.5, lon: -81.6 }];
+    },
+    async weatherLocate() { return window.__noLocation ? { error: 'unavailable' } : { lat: 51.5, lon: -0.12 }; },
+    async weather(where) {
+      const city = where && typeof where === 'object' ? where.name : where;
+      window.__weatherAsked = where;
       if (!city) return { error: 'no-city' };
+      const days = Array.from({ length: 5 }, (_, i) => '2026-11-' + String(24 + i));
       return {
+        daily: { time: days, weather_code: [61, 3, 2, 0, 71], temperature_2m_max: [15, 13, 12, 16, 3], temperature_2m_min: [9, 8, 6, 7, -1], precipitation_probability_max: [70, 20, 10, 0, 60] },
         place: city, country: 'GB',
         current: { temperature_2m: 14.6, apparent_temperature: 12.9, relative_humidity_2m: 71, weather_code: 61, wind_speed_10m: 17.3, is_day: 1, time: '2026-11-24T08:00' },
         hourly: {
@@ -153,6 +188,7 @@ if (!window.islandAPI) {
           temperature_2m: hours.map((_, i) => 12 + Math.round(4 * Math.sin(i / 4))),
           weather_code: hours.map((_, i) => [61, 3, 2, 0, 1][i % 5]),
           is_day: hours.map((_, i) => (i % 24 >= 7 && i % 24 <= 17 ? 1 : 0)),
+          precipitation_probability: hours.map((_, i) => (i * 7) % 90),
         },
       };
     },

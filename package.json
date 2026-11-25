@@ -14,9 +14,11 @@
     "test": "node test/run.js",
     "build:theme": "node node_modules/esbuild/bin/esbuild theme-src.js --bundle --minify --format=iife --global-name=DyColor --outfile=vendor/dycolor.js",
     "icons": "node scripts/make-icon.js",
-    "pack": "electron-builder --win --dir",
-    "dist": "electron-builder --win",
-    "ping": "node ping.js"
+    "pack": "electron-builder --win --dir --publish never",
+    "dist": "electron-builder --win --publish never",
+    "ping": "node ping.js",
+    "test:ui": "electron test/ui-smoke.js && electron test/ui-settings.js && electron test/ui-matrix.js && node test/main-smoke.js",
+    "test:main": "node test/main-smoke.js"
   },
   "build": {
     "appId": "com.dyisland.app",
@@ -46,6 +48,7 @@
       "dns/*.ps1",
       "hook.js",
       "approve-hook.js",
+      "agent-hook.js",
       "dyisland.js",
       "dyisland.cmd"
     ],
@@ -79,12 +82,22 @@
       "deleteAppDataOnUninstall": false,
       "artifactName": "DyIsland-Setup-${version}.exe"
     },
-    "publish": null
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "RykoTheDev",
+        "repo": "dyisland"
+      }
+    ]
   },
   "devDependencies": {
     "@material/material-color-utilities": "^0.4.0",
     "electron": "^45.4.1",
     "electron-builder": "^26.0.12",
     "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11",
+    "ical.js": "^2.2.1"
   }
 }

@@ -20,6 +20,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: UI and main-process smoke test (real Electron; does not block the build)
+        run: npm run test:ui
+        continue-on-error: true
       - name: Check that the packaged app builds (unpacked, no installer)
         run: npm run pack
         env:

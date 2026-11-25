@@ -14,7 +14,7 @@
     motion: 'expressive', placement: { edge: 'top', monitor: 'primary' }, dns: { tile: true }, quiet: { dnd: false, mute: false }, openOn: 'click', autoHide: false, hideInFullscreen: true,
     theme: { mode: 'auto', variant: 'vibrant', seed: '#1FB5A5', preset: 'teal' },
     size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 } },
-    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard', 'agents'], hiddenTabs: ['clipboard'],
+    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard'], hiddenTabs: ['clipboard'],
     mascot: { enabled: true, delay: 8 }, clipboard: { enabled: false, max: 12 }, battery: { warn: true },
     units: { temp: 'c', clock: 'auto' }, calendar: { weekStart: 'auto' }, usage: { forecast: true, resetAlert: true }, approvals: { enabled: true, wait: 30 }, agents: { quietAlert: false }, split: { enabled: true, lead: 'auto' },
     privacy: { dot: true },
@@ -24,6 +24,8 @@
   let timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
   let lastWeather = null, cal = null, lastDay = '';
   // pointer / visibility / mascot state, declared up here because the first clock tick already runs the code that reads it
+  let evList = [], evByDay = new Map();                    // calendar events from the link in Settings (main reads and parses it)
+  let privNow = { camera: false, mic: false };            // camera / microphone in use right now
   let lastHm = '', near = false, hoverFlag = false, hotkeyReveal = false, hotkeyTimer = 0, idleSince = Date.now(), eyesOn = false, happyNext = true;
 
   // ---------------------------------------------------------------- elements (easing curves live in styles.css)
@@ -31,11 +33,21 @@
   const pad = (n) => String(n).padStart(2, '0');
   const fmt = (s) => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
 
+  // ---------------------------------------------------------------- the keyboard
+  // The island window never takes the keyboard by itself. It asks for it (api.input) while the hotkey has opened it or the city box is being typed in,
+  // and lets go again when the last reason is gone: main then hands the focus back to the window you were in.
+  const keyHold = new Set();
+  function grabKeys(why) { if (keyHold.has(why)) return; const was = keyHold.size; keyHold.add(why); if (!was) api.input(true); }
+  function releaseKeys(why) { if (!keyHold.delete(why)) return; if (!keyHold.size) api.input(false); }
+
   // ---------------------------------------------------------------- open / close
   // The content entrance plays only when the island was fully collapsed. Re-entering mid-close
   // keeps the content as it is, so a quick hover in and out never makes anything jump.
+  let vtActive = false;
   let closeTimer = 0, settleTimer = 0, animTimer = 0, settled = true, editing = false, pinned = false, pinTimer = 0, settingsOpen = false;
   const isOpen = () => wrap.classList.contains('open');
+  // Do not disturb = your own switch, or (Settings > Alerts > Quiet during calls) the camera / microphone being in use. Never written back to the settings.
+  const isDnd = () => !!S.quiet.dnd || !!(S.meetings && S.meetings.dnd && (privNow.camera || privNow.mic));
   function animatePage(p) {
     clearTimeout(animTimer);
     p.classList.remove('anim'); void p.offsetWidth; p.classList.add('anim');
@@ -52,14 +64,21 @@
   function close(force) {
     if (typeof hideTray === 'function') hideTray();
     if (!force && approvalList.length && wrap.dataset.page === 'approve') return;     // an open request keeps the card up until it is answered
-    wrap.classList.remove('open'); api.capture(wrap.matches(':hover'));      // click-through again, unless the pointer is still on it (no mouseenter will fire to take it back)
+    wrap.classList.remove('open'); releaseKeys('hotkey'); api.capture(wrap.matches(':hover'));      // click-through again, unless the pointer is still on it (no mouseenter will fire to take it back)
     noteActivity();                                        // idling starts when the island closes, not when the hover began
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => { settled = true; }, 300);
   }
 
   // "On click" (the default): the pointer only wakes the island (so it can be clicked); a click opens it. "On hover": hovering opens it.
-  wrap.addEventListener('mouseenter', () => { hoverFlag = true; api.capture(true); if (isOpen()) clearTimeout(closeTimer); if (!approvalList.length) pinned = false; if (!(eyesOn && S.openOn === 'click')) noteActivity(); if (S.openOn === 'hover' && !wrap.classList.contains('has-notice')) open(); updateVisibility(); });
+  // Hover mode waits ~110 ms of dwell before it opens, so a pointer only passing over the pill does not pop it open
+  let hoverT = 0;
+  wrap.addEventListener('mouseenter', () => {
+    if (!isOpen()) mascot.react('curious');
+    hoverFlag = true; api.capture(true); if (isOpen()) clearTimeout(closeTimer); if (!approvalList.length) pinned = false; if (!(eyesOn && S.openOn === 'click')) noteActivity();
+    if (S.openOn === 'hover' && !wrap.classList.contains('has-notice') && !isOpen()) { clearTimeout(hoverT); hoverT = setTimeout(() => { if (hoverFlag && !isOpen()) { open(); updateVisibility(); } }, 110); }
+    updateVisibility();
+  });
   // Toast about a Claude session ("needs you" / "finished"): a click goes to the window that session runs in
   function openClaudeFor(session) {
     Promise.resolve(api.focusClaude && api.focusClaude(session)).then((r) => {
@@ -67,22 +86,35 @@
     }).catch(() => {});
   }
   wrap.addEventListener('click', (e) => {
+    if (Date.now() - swipedAt < 450) return;                  // that click was the end of a flick that dismissed a toast
     if (wrap.classList.contains('has-notice') && !isOpen() && e.target.closest('.notice') && shownNotice && shownNotice.session) {
       dismissNotices(); openClaudeFor(shownNotice.session); return;
     }
     if (S.openOn === 'hover' || isOpen()) return;
     const hit = e.target.closest('.stchip'), k = hit && hit.dataset.kind;           // clicking a status chip lands on its page
-    if (k === 'limit') go('usage'); else if (k === 'timer') go('timer'); else if (k === 'approve') go('approve');
+    if (k === 'event') { const ev = evList.find((x) => x.id === hit.dataset.ev); if (ev && ev.link) { api.openEvent(ev.id); return; } go('home'); }
+    else if (k === 'limit') go('usage'); else if (k === 'timer') go('timer'); else if (k === 'approve') go('approve');
     open(); updateVisibility();
   });
   // Open and meant to stay open: an alert/hotkey pin, typing in the city box, or a permission card that is waiting for an answer
   const keepOpen = () => editing || pinned || (approvalList.length > 0 && wrap.dataset.page === 'approve');
   wrap.addEventListener('mouseleave', () => {
-    hoverFlag = false; updateVisibility();
+    if (vtActive) return;                                    // a view transition is running: its overlay is not the pointer leaving
+    hoverFlag = false; clearTimeout(hoverT); updateVisibility();
     if (keepOpen() || settingsOpen) { api.capture(false); return; }      // stays open, but the pointer is gone: let clicks through to what is underneath
     clearTimeout(closeTimer);
     closeTimer = setTimeout(close, 240);
   });
+
+  // Mouse gestures on the closed pill: middle-click plays / pauses, right-click opens it with the quick actions
+  wrap.addEventListener('auxclick', (e) => { if (e.button === 1 && !isOpen()) { e.preventDefault(); api.media('toggle'); } });
+  wrap.addEventListener('contextmenu', (e) => { if (isOpen()) return; e.preventDefault(); open(); updateVisibility(); setTimeout(() => { if (isOpen()) showTray(); }, 480); });
+  // Mouse wheel over the tab bar switches tabs
+  let wheelAt = 0;
+  document.addEventListener('wheel', (e) => {
+    if (!isOpen() || !e.target.closest || !e.target.closest('.nav') || Math.abs(e.deltaY) < 4 || Date.now() - wheelAt < 170 || wrap.dataset.page === 'approve') return;
+    wheelAt = Date.now(); stepTab(e.deltaY > 0 ? 1 : -1);
+  }, { passive: true });
 
   // ---------------------------------------------------------------- pages
   function go(name) {
@@ -93,12 +125,28 @@
     $$('.page').forEach((p) => p.classList.toggle('active', p.dataset.page === name));
     $$('.nav [data-tab-btn]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.go === name)));
     wrap.dataset.page = name;
+    applyPageSize();
     animatePage($('#p-' + name));
     if (name === 'usage') { const b = $('#u-big'); if (b) b.dataset.v = '0'; loadUsage(); }       // the percentage counts up each time you arrive
   }
+  // The Home cards fly their icon or cover into the page they open (View Transitions API: the cover really travels, instead of two pages cross-fading).
+  // The browser puts a screenshot layer over the page while it runs, so mouse-leave is ignored until it ends (vtActive).
+  const vtOK = () => typeof document.startViewTransition === 'function' && document.documentElement.dataset.motion === 'expressive' && isOpen();
+  function goShared(name, srcEl, dstFn) {
+    if (!vtOK() || !srcEl) return go(name);
+    vtActive = true;
+    srcEl.style.viewTransitionName = 'shared';
+    let dst = null;
+    const t = document.startViewTransition(() => { srcEl.style.viewTransitionName = ''; go(name); dst = dstFn(); if (dst) dst.style.viewTransitionName = 'shared'; });
+    const end = () => { if (dst) dst.style.viewTransitionName = ''; srcEl.style.viewTransitionName = ''; vtActive = false; hoverFlag = wrap.matches(':hover'); if (!wrap.matches(':hover') && !keepOpen() && !settingsOpen) { clearTimeout(closeTimer); closeTimer = setTimeout(close, 240); } };
+    t.finished.then(end, end);
+  }
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-go]');
-    if (t) go(t.dataset.go);
+    if (!t) return;
+    if (t.id === 'h-mu' && t.dataset.go === 'music') goShared('music', $('#h-mu-art'), () => $('#m-art'));
+    else if (t.id === 'h-wx' && t.dataset.go === 'weather') goShared('weather', $('#h-wx .tile'), () => $('#w-icon').closest('svg'));
+    else go(t.dataset.go);
   });
 
   // ---------------------------------------------------------------- state (declared early: the clock reads it)
@@ -110,8 +158,15 @@
   const chip = $('#chip');
   const chip2 = chip.cloneNode(true); chip2.id = 'chip2'; chip2.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id')); chip.after(chip2);
   let satIndex = 0;                                       // which item the status circle shows when several are active
-  const timer = { total: Number(store.get('timer', 300)), left: 0, running: false, endAt: 0 };
-  timer.left = timer.total;
+  let slots = [window.DyTimers.create(300), window.DyTimers.create(300), window.DyTimers.create(300)], cur = 0;   // the three timers and the one on the Timer page (set up in the timers section)
+  const anyRunning = () => slots.some((s) => s.running);
+  // what the status chip shows: the countdown that ends first (or the stopwatch), and how many are running
+  function chipTimer() {
+    const now = Date.now(), run = slots.filter((s) => s.running);
+    if (!run.length) return null;
+    const down = run.filter((s) => s.mode !== 'stopwatch').sort((x, y) => window.DyTimers.seconds(x, now) - window.DyTimers.seconds(y, now));
+    return { s: down[0] || run[0], n: run.length, now };
+  }
 
   // ---------------------------------------------------------------- clock
   function tickClock() {
@@ -129,7 +184,6 @@
     $('#h-period').textContent = period;
     if (wrap.dataset.mode !== 'timer') $('.c-time').textContent = hm + (period ? ' ' + period : '');   // the clock, unless the pill is showing the timer
     renderWork();                                           // ticks the elapsed time once a second
-    if (wrap.dataset.page === 'agents' && isOpen()) renderAgents();
     renderSat();
     $('#h-date').textContent = d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
   }
@@ -159,7 +213,8 @@
     if (approvalList.length) items.push('approve');
     if (limitWarn) items.push('limit');
     if (work.working) items.push('work');
-    if (timer.running) items.push('timer');
+    if (anyRunning()) items.push('timer');
+    if (soonEvent()) items.push('event');
     return items;
   }
   // Which items the chips show. With two or more things going on and Split on, two chips sit side by side (the "lead" first);
@@ -177,10 +232,19 @@
     } else if (kind === 'work') {
       label = work.count > 1 ? `Claude working ×${work.count}` : 'Claude working';
       value = clockText((Date.now() - work.since) / 1000);
+    } else if (kind === 'event') {
+      const ev = soonEvent(), mins = ev ? Math.max(0, Math.ceil((ev.start - Date.now()) / 60000)) : 0;
+      label = ev ? ev.title.slice(0, 22) : 'Event'; value = mins <= 0 ? 'now' : 'in ' + mins + ' min';
+      level = mins <= 5 ? 'warn' : ''; fill = String(Math.max(4, Math.min(100, 100 - (mins / 15) * 100)));
+      el.dataset.ev = ev ? ev.id : '';
     } else if (kind === 'timer') {
-      label = 'Timer';
-      value = clockText(Math.ceil(timer.left));
-      fill = String(timer.total ? Math.max(0, Math.min(100, (timer.left / timer.total) * 100)) : 0);
+      const ct = chipTimer();
+      if (ct) {
+        const s = ct.s, TMc = window.DyTimers;
+        label = ct.n > 1 ? 'Timers \u00d7' + ct.n : s.mode === 'pomodoro' ? (s.phase === 'focus' ? 'Focus' : 'Break') : s.mode === 'stopwatch' ? 'Stopwatch' : 'Timer';
+        value = clockText(s.mode === 'stopwatch' ? TMc.seconds(s, ct.now) : Math.ceil(TMc.seconds(s, ct.now)));
+        fill = String(Math.round(TMc.fraction(s, ct.now) * 100));
+      }
     } else {
       label = `${limitWarn.name} limit`;
       value = `${limitWarn.left}% left`;
@@ -266,7 +330,7 @@
   function updateMode() {
     const base = mediaState && mediaState.status === 'Playing' ? 'media' : 'idle';
     // With PILL_SHOWS_STATUS the pill is taken over by Claude working, then a running timer. Otherwise the circle shows them.
-    const mode = PILL_SHOWS_STATUS ? (work.working ? 'work' : timer.running ? 'timer' : base) : base;
+    const mode = PILL_SHOWS_STATUS ? (work.working ? 'work' : anyRunning() ? 'timer' : base) : base;
     if (wrap.dataset.mode !== mode) noteActivity();          // only a real change counts as activity (this runs every second)
     wrap.dataset.mode = mode;
     wrap.dataset.multi = String(mode === 'work' && work.count > 1);
@@ -280,9 +344,55 @@
     title: $('#m-title'), artist: $('#m-artist'), cur: $('#m-cur'), dur: $('#m-dur'),
     img: $('#m-img'), note: $('#m-note'), art: $('#m-art'),
     play: $('#m-play'), playI: $('#m-play-i'), prev: $('#m-prev'), next: $('#m-next'),
+    shuf: $('#m-shuf'), rep: $('#m-rep'),
     hTitle: $('#h-mu-t'), hArtist: $('#h-mu-a'), hArt: $('#h-mu-art'),
   };
   let art = '', lastKey = '', mediaAt = 0, mediaErr = '';
+  els.artPrev = $('#m-img-prev');
+  const wasHidden = (el) => el.hidden;
+  els.img.addEventListener('animationend', () => { els.artPrev.hidden = true; });
+  // ---- The island takes its colours from the cover of what is playing (Settings > Display). Local to this page: nothing is saved or broadcast.
+  // Not under a named theme (Nord, Catppuccin...): those keep their own palette.
+  let artSeed = null, artSeedFor = '';
+  function seedFromArt(src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas'); c.width = c.height = 32;
+          const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 32, 32);
+          const px = g.getImageData(0, 0, 32, 32).data, bins = Array.from({ length: 24 }, () => ({ w: 0, r: 0, g: 0, b: 0 }));
+          for (let i = 0; i < px.length; i += 4) {
+            const r = px[i] / 255, gg = px[i + 1] / 255, b = px[i + 2] / 255, mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), d = mx - mn;
+            if (px[i + 3] < 200 || mx < 0.2 || mx > 0.97 || d / mx < 0.25) continue;                 // skip near-black, near-white and grey pixels
+            const h = d === 0 ? 0 : mx === r ? ((gg - b) / d + 6) % 6 : mx === gg ? (b - r) / d + 2 : (r - gg) / d + 4;
+            const bin = bins[Math.min(23, Math.floor((h / 6) * 24))], w = (d / mx) * (d / mx) + 0.05;   // the more colourful, the more it counts
+            bin.w += w; bin.r += r * 255 * w; bin.g += gg * 255 * w; bin.b += b * 255 * w;
+          }
+          const idx = bins.map((x, i) => i).sort((a, b) => bins[b].w - bins[a].w);
+          const best = bins[idx[0]];
+          if (best.w < 0.6) return resolve(null);                                                        // a grey cover: no glow
+          const hexOf = (x) => { const h2 = (v) => Math.round(v / x.w).toString(16).padStart(2, '0'); return ('#' + h2(x.r) + h2(x.g) + h2(x.b)).toUpperCase(); };
+          const far = idx.slice(1).find((i) => Math.min(Math.abs(i - idx[0]), 24 - Math.abs(i - idx[0])) >= 3 && bins[i].w > best.w * 0.2);   // a second colour from another part of the colour wheel
+          resolve([hexOf(best), far !== undefined ? hexOf(bins[far]) : hexOf(best)]);
+        } catch { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+  const glowEl = $('#m-glow');
+  try { for (const n of ['--art1', '--art2']) CSS.registerProperty({ name: n, syntax: '<color>', inherits: false, initialValue: 'transparent' }); } catch { /* already registered, or an old engine: the glow just changes without fading */ }
+  async function applyArtGlow() {
+    const on = !!(S.music && S.music.artColors) && !!art && !!mediaState && !!mediaState.title;
+    let cols = null;
+    if (on) {
+      if (artSeedFor !== art) { artSeedFor = art; artSeed = null; const want = art; const r = await seedFromArt(want); if (art !== want) return; artSeed = r; }
+      cols = artSeed;
+    }
+    if (cols) { glowEl.style.setProperty('--art1', cols[0]); glowEl.style.setProperty('--art2', cols[1]); wrap.dataset.glow = '1'; }
+    else delete wrap.dataset.glow;
+  }
   let hImg = null;                                        // home art <img>, built once, only its src changes
   const hNote = els.hArt.firstElementChild.cloneNode(true);
   // A cover that fails to decode must never show the browser's broken-image icon: drop it and show the music note
@@ -299,11 +409,21 @@
     els.hTitle.textContent = has ? m.title : 'Nothing playing';
     els.hArtist.textContent = has ? (m.artist || 'Music') : 'Music';
     els.playI.setAttribute('href', playing ? '#i-pause' : '#i-play');
+    const hasShuf = has && (m.shuffle === true || m.shuffle === false), hasRep = has && !!m.repeat;
+    els.shuf.hidden = !hasShuf; els.shuf.setAttribute('aria-pressed', String(m && m.shuffle === true));
+    els.rep.hidden = !hasRep; els.rep.dataset.mode = (m && m.repeat) || 'None'; els.rep.setAttribute('aria-pressed', String(hasRep && m.repeat !== 'None'));
+    els.rep.title = hasRep ? 'Repeat: ' + (m.repeat === 'List' ? 'all' : m.repeat === 'Track' ? 'one' : 'off') : '';
+    els.art.title = has && m.app ? 'Playing in ' + String(m.app).replace(/\.exe$/i, '').split('!').pop().split('.').pop().replace(/_.*$/, '') : '';
     els.play.dataset.playing = String(playing);
     [els.play, els.prev, els.next].forEach((b) => { b.disabled = !has; });
     const showArt = has && art;
     els.img.hidden = !showArt; els.note.style.display = showArt ? 'none' : '';
-    if (showArt) els.img.src = art;
+    if (showArt && els.img.getAttribute('src') !== art) {      // a new cover fades in over the old one
+      const old = els.img.getAttribute('src');
+      if (old && !wasHidden(els.img)) { els.artPrev.src = old; els.artPrev.hidden = false; }
+      els.img.src = art; els.img.classList.remove('fade-in'); void els.img.offsetWidth; els.img.classList.add('fade-in');
+    }
+    applyArtGlow();
     // small art tile on home
     if (showArt) {
       if (!hImg) { hImg = document.createElement('img'); hImg.alt = ''; hImg.addEventListener('error', badArt); }
@@ -337,11 +457,49 @@
 
   els.play.addEventListener('click', () => api.media('toggle'));
   els.prev.addEventListener('click', () => api.media('prev'));
+  els.shuf.addEventListener('click', () => api.media('shuffle'));
+  els.rep.addEventListener('click', () => api.media('repeat'));
   els.next.addEventListener('click', () => api.media('next'));
 
   // Wavy progress (the signature): active part waves while playing, flattens when paused
   const cv = $('#wave'), ctx = cv.getContext('2d');
-  let amp = 0, phase = 0, lastT = 0;
+  let amp = 0, phase = 0, lastT = 0, waveVer = -1, waveTrack = '', waveFill = '';   // theme colours are read once per theme change, not every frame
+  let waveSec = '';
+  function themeCols() {
+    const ver = window.DyTheme ? window.DyTheme.version : 0;
+    if (ver !== waveVer || !waveFill) {                      // the inline value is the TARGET colour (the computed one is mid-fade)
+      const rs = document.documentElement.style, css = getComputedStyle(document.documentElement); waveVer = ver;
+      const pick = (k) => rs.getPropertyValue(k) || css.getPropertyValue(k);
+      waveTrack = pick('--md-sys-color-outline-variant'); waveFill = pick('--md-sys-color-primary'); waveSec = pick('--md-sys-color-secondary-container');
+    }
+  }
+  // The timer ring and the usage bars: Material 3 Expressive wavy progress (wavy.js). The wave flows while something is running and flattens when it stops.
+  const wavy = { phase: 0, last: 0, ampT: 0 };
+  function sizeCanvas(cv) {
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    return { g, w, h };
+  }
+  function drawWavy(t) {
+    const dt = Math.min(0.05, (t - wavy.last) / 1000 || 0); wavy.last = t;
+    const moving = document.documentElement.dataset.motion !== 'off';
+    const page = wrap.dataset.page;
+    if (moving && (page !== 'timer' || (slots[cur] && slots[cur].running))) wavy.phase += dt * 4;        // the timer ring only flows while it runs
+    themeCols();
+    if (page === 'timer' && window.DyWavy) {
+      const s = slots[cur], run = s.running;
+      wavy.ampT += ((run ? 3.6 : 2.6) - wavy.ampT) * Math.min(1, dt * 8);
+      const { g, w, h } = sizeCanvas(tEl.cv);
+      window.DyWavy.ring(g, Math.min(w, h), { frac: window.DyTimers.fraction(s, Date.now()), amp: moving ? wavy.ampT : 2.4, phase: wavy.phase, color: waveFill, track: waveSec, thickness: 8, waves: 12 });
+    } else if (page === 'usage' && window.DyWavy) {
+      for (const cv of $$('.u-cv')) {
+        const src = $('#' + cv.dataset.src), frac = src ? (parseFloat(src.style.width) || 0) / 100 : 0;
+        const { g, w, h } = sizeCanvas(cv); if (!w) continue;
+        window.DyWavy.line(g, w, h, { frac, amp: moving ? 3 : 2.4, phase: wavy.phase, color: waveFill, track: waveSec, thickness: 4, wavelength: 18 });
+      }
+    }
+  }
   function drawWave(t) {
     if (document.documentElement.dataset.motion === 'off') { /* keep the last frame still */ if (cv.width) return; }
     const dpr = window.devicePixelRatio || 1;
@@ -355,12 +513,12 @@
     const frac = m && m.dur > 0 ? curPos() / m.dur : 0;
     const x = 4 + frac * (w - 8), cy = h / 2;
     ctx.lineCap = 'round'; ctx.lineWidth = 4;
-    const css = getComputedStyle(document.documentElement);
+    themeCols();
     // remaining track
-    ctx.strokeStyle = css.getPropertyValue('--md-sys-color-outline-variant');
+    ctx.strokeStyle = waveTrack;
     ctx.beginPath(); ctx.moveTo(Math.min(w - 4, x + 6), cy); ctx.lineTo(w - 4, cy); ctx.stroke();
     // played wave
-    ctx.strokeStyle = css.getPropertyValue('--md-sys-color-primary');
+    ctx.strokeStyle = waveFill;
     ctx.beginPath();
     for (let px = 4; px <= x - 4; px += 1) {
       const y = cy + Math.sin(px / 5 - phase) * amp;
@@ -369,7 +527,7 @@
     if (x - 4 < 4) ctx.moveTo(4, cy);
     ctx.stroke();
     // handle
-    ctx.fillStyle = css.getPropertyValue('--md-sys-color-primary');
+    ctx.fillStyle = waveFill;
     ctx.beginPath(); ctx.roundRect(x - 2, cy - 8, 4, 16, 2); ctx.fill();
     els.cur.textContent = fmt(curPos()); els.dur.textContent = fmt(m ? m.dur : 0);
   }
@@ -381,10 +539,45 @@
     mediaState.pos = f * m.dur; mediaAt = performance.now();
   });
   function frame(t) {
-    if (isOpen() && wrap.dataset.page === 'music' && !document.hidden) { drawWave(t); requestAnimationFrame(frame); }
+    const pg = wrap.dataset.page;
+    if (isOpen() && !document.hidden && (pg === 'music' || pg === 'timer' || pg === 'usage')) { if (pg === 'music') drawWave(t); else drawWavy(t); requestAnimationFrame(frame); }
     else setTimeout(() => requestAnimationFrame(frame), 250);                 // nothing to draw: wake four times a second, not at the display rate
   }
   requestAnimationFrame(frame);
+
+  // ---------------------------------------------------------------- volume: the HUD on the closed island, the wheel / arrows on the music page
+  let vol = { pct: -1, mute: false }, hudT = 0, volChipT = 0;
+  const volHref = () => (vol.mute || vol.pct === 0 ? '#i-mute' : '#i-volume');
+  const volChip = { box: $('#m-vol'), icon: $('#m-vol-i'), text: $('#m-vol-t') };
+  function showVolChip() {
+    volChip.icon.setAttribute('href', volHref()); volChip.text.textContent = vol.mute ? 'Muted' : vol.pct + '%';
+    volChip.box.hidden = false; clearTimeout(volChipT); volChipT = setTimeout(() => { volChip.box.hidden = true; }, 1200);
+  }
+  function showHud() {
+    if (isOpen() || editing || wrap.classList.contains('autohidden') && !S.autoHide) return;
+    if (wrap.classList.contains('has-notice') && wrap.dataset.hud !== '1') return;                // a real toast keeps the stage
+    shownNotice = null;                                                                             // the HUD is not a toast: a click on it must never take you to an old toast's Claude window
+    nEl.root.dataset.kind = 'hud'; nEl.root.dataset.tone = '';
+    nEl.icon.setAttribute('href', volHref()); nEl.title.textContent = vol.mute ? 'Muted' : 'Volume'; nEl.sub.textContent = vol.mute ? '' : vol.pct + '%';
+    nEl.root.style.setProperty('--v', String(vol.mute ? 0 : vol.pct));
+    wrap.dataset.hud = '1'; wrap.classList.add('has-notice'); updateVisibility();
+    clearTimeout(hudT);
+    hudT = setTimeout(() => { if (wrap.dataset.hud === '1') { delete wrap.dataset.hud; wrap.classList.remove('has-notice'); updateVisibility(); } }, 1600);
+  }
+  api.onVolume && api.onVolume((v) => {
+    if (!v || !Number.isFinite(v.pct)) return;
+    const changed = vol.pct !== v.pct || vol.mute !== !!v.mute;
+    vol = { pct: v.pct, mute: !!v.mute };
+    if (v.init || !changed) return;                                    // the value at start-up is not news
+    if (isOpen() && wrap.dataset.page === 'music') showVolChip();
+    else if (S.hud && S.hud.volume) { showHud(); mascot.react('curious'); }
+  });
+  function nudgeVolume(d) {
+    if (vol.pct < 0) return;
+    vol = { pct: Math.max(0, Math.min(100, vol.pct + d)), mute: false };
+    api.setVolume(vol.pct); showVolChip();
+  }
+  $('#p-music').addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) < 4) return; nudgeVolume(e.deltaY < 0 ? 4 : -4); }, { passive: true });
 
   // ---------------------------------------------------------------- weather
   const WX = (code, day) => {
@@ -403,11 +596,46 @@
   const hourLabel = (hh) => (timeFmt.resolvedOptions().hour12 ? `${hh % 12 || 12}${hh < 12 ? 'a' : 'p'}` : pad(hh));
   const deg = (n) => Math.round(S.units.temp === 'f' ? (n * 9) / 5 + 32 : n) + '°';    // the API gives Celsius
   let city = store.get('city', '');
+  let cityGeo = null;                                      // { name, lat, lon } of the place picked from the list (or found by "Use my location"); null = just the typed text
+  try { const g = JSON.parse(store.get('cityGeo', 'null')); if (g && Number.isFinite(g.lat) && Number.isFinite(g.lon) && g.name === city) cityGeo = g; } catch { /* none saved */ }
+  const whereNow = () => (cityGeo ? { name: cityGeo.name, lat: cityGeo.lat, lon: cityGeo.lon } : city);
+  let wView = store.get('wview', 'hours') === 'days' ? 'days' : 'hours';
   const wEl = {
     city: $('#w-city'), cityT: $('#w-city-t'), input: $('#w-input'), icon: $('#w-icon'), temp: $('#w-temp'),
     cond: $('#w-cond'), feels: $('#w-feels'), hum: $('#w-hum'), wind: $('#w-wind'), hours: $('#w-hours'),
-    hIcon: $('#h-wx-i'), hT: $('#h-wx-t'), hC: $('#h-wx-c'),
+    hIcon: $('#h-wx-i'), hT: $('#h-wx-t'), hC: $('#h-wx-c'), sug: $('#w-sug'),
   };
+  const tdeg = (n) => Math.round(S.units.temp === 'f' ? (n * 9) / 5 + 32 : n);
+  // Next hours (every other hour) or next days: click the strip to switch
+  function renderForecast(w) {
+    const box = wEl.hours; box.replaceChildren(); box.dataset.view = wView;
+    const c = w.current, h = w.hourly;
+    box.title = wView === 'days' ? 'Click for the next hours' : (w.daily ? 'Click for the next days' : '');
+    if (wView === 'days' && w.daily && Array.isArray(w.daily.time)) {
+      const dd = w.daily;
+      for (let k = 0; k < Math.min(5, dd.time.length); k++) {
+        const [ic] = WX(dd.weather_code[k], true);
+        const day = k === 0 ? 'Today' : new Date(dd.time[k] + 'T12:00:00').toLocaleDateString([], { weekday: 'short' });
+        const rain = dd.precipitation_probability_max ? dd.precipitation_probability_max[k] : null;
+        const el = document.createElement('div'); el.className = 'hour' + (k === 0 ? ' now' : '');
+        el.title = day + ': ' + tdeg(dd.temperature_2m_max[k]) + '° / ' + tdeg(dd.temperature_2m_min[k]) + '°' + (rain != null ? ', ' + rain + '% chance of rain' : '');
+        el.innerHTML = '<span class="label-medium"></span><svg class="i" width="20" height="20"><use href="#' + ic + '"/></svg><span class="label-medium"></span>';
+        el.children[0].textContent = day; el.children[2].textContent = tdeg(dd.temperature_2m_max[k]) + '°/' + tdeg(dd.temperature_2m_min[k]) + '°';
+        el.style.setProperty('--n', String(k)); box.appendChild(el);
+      }
+      return;
+    }
+    let i = h.time.indexOf(c.time.slice(0, 13) + ':00'); if (i < 0) i = 0;
+    for (let k = 0; k < 5; k++) {
+      const j = i + k * 2; if (j >= h.time.length) break;
+      const [ic] = WX(h.weather_code[j], h.is_day[j] === 1);
+      const d = document.createElement('div'); d.className = 'hour' + (k === 0 ? ' now' : '');
+      d.innerHTML = `<span class="label-medium">${k === 0 ? 'Now' : hourLabel(Number(h.time[j].slice(11, 13)))}</span><svg class="i" width="20" height="20"><use href="#${ic}"/></svg><span class="label-medium">${deg(h.temperature_2m[j])}</span>`;
+      if (h.precipitation_probability && h.precipitation_probability[j] != null) d.title = h.precipitation_probability[j] + '% chance of rain';
+      d.style.setProperty('--n', String(k)); box.appendChild(d);
+    }
+  }
+  wEl.hours.addEventListener('click', () => { if (!lastWeather || !lastWeather.daily) return; wView = wView === 'days' ? 'hours' : 'days'; store.set('wview', wView); renderForecast(lastWeather); animatePage($('#p-weather')); });
 
   function renderWeather(w) {
     if (!w || w.error) {
@@ -433,64 +661,117 @@
     $('.c-wx use').setAttribute('href', '#' + icon); $('.c-wx').classList.add('on'); $('.c-temp').textContent = deg(c.temperature_2m);
 
     const h = w.hourly; let i = h.time.indexOf(c.time.slice(0, 13) + ':00'); if (i < 0) i = 0;
-    wEl.hours.innerHTML = '';
-    for (let k = 0; k < 5; k++) {
-      const j = i + k * 2 + 0; if (j >= h.time.length) break;
-      const [ic] = WX(h.weather_code[j], h.is_day[j] === 1);
-      const d = document.createElement('div'); d.className = 'hour' + (k === 0 ? ' now' : '');
-      d.innerHTML = `<span class="label-medium">${k === 0 ? 'Now' : hourLabel(Number(h.time[j].slice(11, 13)))}</span><svg class="i" width="20" height="20"><use href="#${ic}"/></svg><span class="label-medium">${deg(h.temperature_2m[j])}</span>`;
-      d.style.setProperty('--n', String(k)); wEl.hours.appendChild(d);
-    }
+    if (h.precipitation_probability) { const pp = Math.max(...h.precipitation_probability.slice(i, i + 3).filter((x) => x != null), 0); if (pp >= 20) wEl.cond.textContent = text + ' · ' + pp + (/rain|drizzle|shower|thunder/i.test(text) ? '%' : '% rain'); }
+    renderForecast(w);
   }
-  window.addEventListener('storage', (e) => { if (e.key === 'island.city' && e.newValue && e.newValue !== city) { city = e.newValue; loadWeather(); } });   // another island changed the city
+  window.addEventListener('storage', (e) => {                          // another island changed the city
+    if (e.key === 'island.city' && e.newValue && e.newValue !== city) {
+      city = e.newValue; cityGeo = null;
+      try { const g = JSON.parse(store.get('cityGeo', 'null')); if (g && g.name === city && Number.isFinite(g.lat) && Number.isFinite(g.lon)) cityGeo = g; } catch { /* none */ }
+      loadWeather();
+    }
+  });
   async function loadWeather() {
     wEl.cityT.textContent = city || 'Set city';
-    lastWeather = await api.weather(city);
+    lastWeather = await api.weather(whereNow());
     renderWeather(lastWeather);
   }
   loadWeather(); setInterval(loadWeather, 15 * 60 * 1000);
 
   // City editing: the window is unfocusable, so we ask main to make it focusable while typing
-  function beginEdit() {
-    editing = true; api.input(true);
-    wEl.city.hidden = true; wEl.input.hidden = false; wEl.input.value = city; wEl.input.focus(); wEl.input.select();
+  // The city box suggests real places (so "Springfield" can be the right one) and has a "Use my location" row.
+  let sugItems = [], sugIdx = -1, sugT = 0, sugSeq = 0;
+  const LOC_ROW = { loc: true };
+  const placeLabel = (p) => [p.name, p.admin1, p.cc].filter(Boolean).join(', ');
+  function renderSuggestions() {
+    const rows = [...sugItems, LOC_ROW];
+    wEl.sug.hidden = false; wEl.input.setAttribute('aria-expanded', 'true');
+    wEl.sug.replaceChildren(...rows.map((p, n) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'w-sug-i sl' + (p.loc ? ' loc' : ''); b.setAttribute('role', 'option'); b.dataset.n = String(n);
+      b.setAttribute('aria-selected', String(n === sugIdx));
+      if (p.loc) { b.innerHTML = '<svg class="i" width="14" height="14"><use href="#i-pin"/></svg><span>Use my location</span>'; b.title = 'Asks Windows where this PC is, and sends only those coordinates to Open-Meteo for the forecast'; }
+      else { const s = document.createElement('span'); s.textContent = placeLabel(p); b.append(s); }
+      return b;
+    }));
+    const sel = wEl.sug.querySelector('[aria-selected="true"]'); if (sel) sel.scrollIntoView({ block: 'nearest' });
   }
-  function endEdit(save) {
+  wEl.input.addEventListener('input', () => {
+    clearTimeout(sugT); const q = wEl.input.value.trim(), seq = ++sugSeq;
+    if (q.length < 2) { sugItems = []; sugIdx = -1; renderSuggestions(); return; }
+    sugT = setTimeout(async () => { try { const r = await api.weatherSearch(q); if (seq === sugSeq && editing) { sugItems = Array.isArray(r) ? r.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon)) : []; sugIdx = sugItems.length ? 0 : -1; renderSuggestions(); } } catch { /* offline: plain text still works */ } }, 220);
+  });
+  async function pickRow(p) {
+    if (p && p.loc) {
+      let r = null; try { r = await api.weatherLocate(); } catch { /* none */ }
+      if (!r || !Number.isFinite(r.lat)) { wEl.input.value = ''; wEl.input.placeholder = 'Location unavailable. Type a city'; sugItems = []; sugIdx = -1; renderSuggestions(); return; }
+      return endEdit(true, { name: 'My location', lat: r.lat, lon: r.lon });
+    }
+    endEdit(true, p);
+  }
+  wEl.sug.addEventListener('mousedown', (e) => e.preventDefault());           // keep the box focused: a blur would close it before the click lands
+  wEl.sug.addEventListener('click', (e) => { const b = e.target.closest('.w-sug-i'); if (!b) return; const rows = [...sugItems, LOC_ROW]; pickRow(rows[Number(b.dataset.n)]); });
+  function beginEdit() {
+    editing = true; grabKeys('edit');
+    sugItems = []; sugIdx = -1; wEl.input.placeholder = 'City';
+    $('#p-weather').dataset.editing = '1';
+    wEl.city.hidden = true; wEl.input.hidden = false; wEl.input.value = city; wEl.input.focus(); wEl.input.select();
+    renderSuggestions();
+  }
+  function endEdit(save, picked) {
     if (!editing) return;
-    editing = false; api.input(false);
+    editing = false; releaseKeys('edit'); clearTimeout(sugT); sugSeq++;
+    delete $('#p-weather').dataset.editing; wEl.sug.hidden = true; wEl.sug.replaceChildren(); wEl.input.setAttribute('aria-expanded', 'false');
     wEl.input.hidden = true; wEl.city.hidden = false;
-    if (save && wEl.input.value.trim() && wEl.input.value.trim() !== city) { city = wEl.input.value.trim(); store.set('city', city); loadWeather(); }
+    if (save && picked) { cityGeo = { name: picked.name, lat: picked.lat, lon: picked.lon }; store.set('cityGeo', JSON.stringify(cityGeo)); city = picked.name; store.set('city', city); loadWeather(); }
+    else if (save && wEl.input.value.trim() && wEl.input.value.trim() !== city) { city = wEl.input.value.trim(); cityGeo = null; store.set('cityGeo', 'null'); store.set('city', city); loadWeather(); }
     // The pointer may have left while typing: close now, or the island would stay open and keep blocking clicks
     if (!wrap.matches(':hover') && !pinned) { clearTimeout(closeTimer); closeTimer = setTimeout(close, 280); }
   }
   wEl.city.addEventListener('click', beginEdit);
-  wEl.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') endEdit(true); if (e.key === 'Escape') endEdit(false); });
+  wEl.input.addEventListener('keydown', (e) => {
+    const rows = [...sugItems, LOC_ROW], n = rows.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sugIdx = e.key === 'ArrowDown' ? (sugIdx + 1) % n : (sugIdx <= 0 ? n - 1 : sugIdx - 1); renderSuggestions(); return; }
+    if (e.key === 'Enter') { const p = sugIdx >= 0 ? rows[sugIdx] : null; if (p) pickRow(p); else endEdit(true); }
+    if (e.key === 'Escape') endEdit(false);
+  });
   wEl.input.addEventListener('blur', () => endEdit(true));
 
-  // ---------------------------------------------------------------- timer
-  const tEl = { time: $('#t-time'), ring: $('#t-ring'), start: $('#t-start'), startI: $('#t-start-i'), startL: $('#t-start-l'), chips: $$('#t-chips .chip'), c: $('.c-time') };
-  // The timer is shared between islands (one per monitor): the state travels with an absolute end time
-  function pushTimer() { try { api.timerSync && api.timerSync({ total: timer.total, left: timer.left, running: timer.running, endAt: timer.endAt }); } catch { /* single island */ } }
+  // ---------------------------------------------------------------- timers
+  // timers.js holds the logic (timer / repeat / pomodoro / stopwatch, three slots); this part draws it. Running timers carry an absolute end time, so every
+  // island window agrees and a reloaded page picks them up again.
+  const TM = window.DyTimers;
+  const MODE_LABEL = { timer: 'Timer', repeat: 'Repeat', pomodoro: 'Pomodoro', stopwatch: 'Stopwatch' };
+  const tEl = { cv: $('#t-ring-cv'), time: $('#t-time'), start: $('#t-start'), startI: $('#t-start-i'), startL: $('#t-start-l'), chips: $$('#t-chips .chip'), chipsBox: $('#t-chips'), mode: $('#t-mode'), modeL: $('#t-mode-l'), slots: $$('#t-slots [data-slot]'), input: $('#t-input') };
+  try {                                                                      // saved settings of the three timers (never a running state: that comes from the other islands or from main)
+    const raw = JSON.parse(store.get('timers', 'null')), legacy = Number(store.get('timer', 300)) || 300;
+    slots = [0, 1, 2].map((i) => TM.normalize(raw && raw.slots && raw.slots[i] ? { ...raw.slots[i], running: false } : null, Date.now(), i === 0 ? legacy : 300));
+    cur = raw && Number.isInteger(raw.cur) ? Math.max(0, Math.min(2, raw.cur)) : 0;
+  } catch { /* defaults */ }
+  const slot = () => slots[cur];
+  const saveSlots = () => store.set('timers', JSON.stringify({ cur, slots: slots.map((s) => ({ mode: s.mode, total: s.total, phase: s.phase, round: s.round })) }));
+  function pushTimer() { try { api.timerSync && api.timerSync({ cur, slots }); } catch { /* single island */ } }
   function applyTimerState(t) {
-    if (!t || !Number.isFinite(t.total) || !Number.isFinite(t.left) || t.total < 0 || t.total > 86400) return;
-    timer.total = t.total; timer.running = !!t.running; timer.endAt = Number(t.endAt) || 0;
-    timer.left = timer.running ? Math.max(0, (timer.endAt - Date.now()) / 1000) : Math.max(0, Math.min(t.total, t.left));
-    store.set('timer', timer.total);
-    tEl.chips.forEach((o) => o.setAttribute('aria-pressed', String(Number(o.dataset.min) * 60 === timer.total)));
-    renderTimer(); updateMode();
+    if (!t || !Array.isArray(t.slots)) return;
+    slots = [0, 1, 2].map((i) => TM.normalize(t.slots[i], Date.now(), 300));
+    if (Number.isInteger(t.cur) && t.cur >= 0 && t.cur < 3) cur = t.cur;
+    saveSlots(); renderTimer(); updateMode(); renderSat();
   }
   api.onTimer && api.onTimer(applyTimerState);
+  let editingTime = false;
   function renderTimer() {
-    const t = Math.ceil(timer.left);                       // ceil: the last second reads 00:01, not 00:00
-    tEl.time.textContent = `${pad(Math.floor(t / 60))}:${pad(t % 60)}`;
-    tEl.ring.style.strokeDashoffset = String(100 * (1 - (timer.total ? timer.left / timer.total : 0)));
-    tEl.start.dataset.running = String(timer.running);
-    tEl.startI.setAttribute('href', timer.running ? '#i-pause' : '#i-play');
-    tEl.startL.textContent = timer.running ? 'Pause' : (timer.left < timer.total && timer.left > 0 ? 'Resume' : 'Start');
-    if (timer.running && wrap.dataset.mode === 'timer') $('.c-time').textContent = tEl.time.textContent;   // only when the pill is in timer mode
+    const s = slot(), now = Date.now(), secs = TM.seconds(s, now);
+    if (!editingTime) tEl.time.textContent = TM.clock(s.mode === 'stopwatch' ? Math.floor(secs) : Math.ceil(secs));     // ceil: the last second reads 00:01, not 00:00
+    tEl.start.dataset.running = String(s.running);
+    tEl.startI.setAttribute('href', s.running ? '#i-pause' : '#i-play');
+    tEl.startL.textContent = s.running ? 'Pause' : (secs > 0 && (s.mode === 'stopwatch' || secs < TM.span(s)) ? 'Resume' : 'Start');
+    tEl.modeL.textContent = s.mode === 'pomodoro' ? (s.phase === 'focus' ? 'Focus' : s.phase === 'long' ? 'Long break' : 'Break') + ' ' + s.round + '/' + TM.POMO.rounds : MODE_LABEL[s.mode];
+    tEl.chipsBox.hidden = !(s.mode === 'timer' || s.mode === 'repeat');
+    tEl.chips.forEach((c) => c.setAttribute('aria-pressed', String(Number(c.dataset.min) * 60 === s.total)));
+    tEl.slots.forEach((b, i) => { b.setAttribute('aria-selected', String(i === cur)); b.dataset.run = String(slots[i].running); });
+    tEl.time.dataset.edit = (s.mode === 'timer' || s.mode === 'repeat') && !s.running ? 'yes' : 'no';
   }
   function chime() {
-    if (S.quiet.mute || S.quiet.dnd || !isLead) return;        // muted, do not disturb, or another monitor's island chimes
+    if (S.quiet.mute || isDnd() || !isLead) return;            // muted, do not disturb, or another monitor's island chimes
     try {
       const ac = new AudioContext();
       [880, 1175].forEach((f, i) => {
@@ -503,35 +784,57 @@
       setTimeout(() => ac.close(), 1200);
     } catch { /* audio unavailable */ }
   }
-  function alertDone() {
+  function alertDone(i) {
+    cur = i; renderTimer();
     if (approvalList.length) { chime(); wrap.classList.remove('alert'); void wrap.offsetWidth; wrap.classList.add('alert'); return; }   // a permission card is waiting: never replace it
     chime(); go('timer'); open(); pinned = true;
     wrap.classList.remove('alert'); void wrap.offsetWidth; wrap.classList.add('alert');
     clearTimeout(pinTimer); pinTimer = setTimeout(() => { pinned = false; if (!wrap.matches(':hover') && !editing) close(); }, 6000);
   }
+  // A timer ended: a plain one opens the Timer page; repeat and pomodoro only chime and toast (they would otherwise open it all day)
+  function timerEvent(i, ev) {
+    const s = slots[i], n = 'Timer ' + (i + 1);
+    if (s.mode === 'pomodoro') {
+      chime();
+      pushNotice(ev === 'done' ? { kind: 'done', tone: 'success', title: 'Pomodoro finished', sub: TM.POMO.rounds + ' rounds done', duration: 6 }
+        : { kind: 'done', tone: 'info', title: s.phase === 'focus' ? 'Back to focus' : s.phase === 'long' ? 'Long break' : 'Break time', sub: Math.round(TM.span(s) / 60) + ' min \u00b7 round ' + s.round + ' of ' + TM.POMO.rounds, duration: 5 });
+    } else if (s.mode === 'repeat') { mascot.react('bounce'); chime(); pushNotice({ kind: 'done', tone: 'info', title: n + ' went off', sub: 'Starting again', duration: 3 }); }
+    else alertDone(i);
+  }
   setInterval(() => {
-    if (!timer.running) return;
-    timer.left = Math.max(0, (timer.endAt - Date.now()) / 1000);
-    if (timer.left <= 0) { timer.running = false; timer.left = 0; renderTimer(); updateMode(); alertDone(); return; }
-    renderTimer();
+    const now = Date.now(); let changed = false;
+    slots.forEach((s, i) => { if (!s.running) return; const ev = TM.tick(s, now); if (ev) { timerEvent(i, ev); changed = true; } });
+    if (changed) { updateMode(); renderSat(); }
+    if (changed || (slots.some((s) => s.running) && isOpen() && wrap.dataset.page === 'timer')) renderTimer();
   }, 250);
-  tEl.start.addEventListener('click', () => {
-    if (timer.running) { timer.running = false; }
-    else {
-      if (timer.left <= 0) timer.left = timer.total;
-      timer.endAt = Date.now() + timer.left * 1000; timer.running = true;
-    }
-    renderTimer(); updateMode(); pushTimer();
-  });
-  $('#t-reset').addEventListener('click', () => { timer.running = false; timer.left = timer.total; renderTimer(); updateMode(); pushTimer(); });
-  tEl.chips.forEach((c) => {
-    c.setAttribute('aria-pressed', String(Number(c.dataset.min) * 60 === timer.total));
-    c.addEventListener('click', () => {
-      timer.total = Number(c.dataset.min) * 60; timer.left = timer.total; timer.running = false; store.set('timer', timer.total);
-      tEl.chips.forEach((o) => o.setAttribute('aria-pressed', String(o === c)));
-      renderTimer(); updateMode(); pushTimer();
-    });
-  });
+  const changedTimer = () => { saveSlots(); renderTimer(); updateMode(); renderSat(); pushTimer(); };
+  tEl.start.addEventListener('click', () => { const s = slot(); if (s.running) TM.pause(s, Date.now()); else TM.start(s, Date.now()); changedTimer(); });
+  $('#t-reset').addEventListener('click', () => { TM.reset(slot()); changedTimer(); });
+  tEl.chips.forEach((c) => c.addEventListener('click', () => { TM.setTotal(slot(), Number(c.dataset.min) * 60); changedTimer(); }));
+  tEl.mode.addEventListener('click', () => { const s = slot(); TM.setMode(s, TM.MODES[(TM.MODES.indexOf(s.mode) + 1) % TM.MODES.length]); changedTimer(); });
+  tEl.slots.forEach((b) => b.addEventListener('click', () => { cur = Number(b.dataset.slot); saveSlots(); renderTimer(); }));
+  // The wheel over the ring sets the length (1 min a notch, 5 with Shift); clicking the time lets you type it ("25", "7:30", "90s", "1h15m")
+  $('.ring').addEventListener('wheel', (e) => {
+    const s = slot(); if ((s.mode !== 'timer' && s.mode !== 'repeat') || s.running || Math.abs(e.deltaY) < 4) return;
+    TM.setTotal(s, Math.max(60, s.total + (e.deltaY < 0 ? 1 : -1) * 60 * (e.shiftKey ? 5 : 1))); changedTimer();
+  }, { passive: true });
+  function beginTimeEdit() {
+    const s = slot(); if ((s.mode !== 'timer' && s.mode !== 'repeat') || s.running || editingTime) return;
+    editingTime = true; editing = true; grabKeys('timer-edit');
+    tEl.time.hidden = true; tEl.input.hidden = false; tEl.input.value = String(Math.round(s.total / 60)); tEl.input.focus(); tEl.input.select();
+  }
+  function endTimeEdit(save) {
+    if (!editingTime) return;
+    editingTime = false; editing = false; releaseKeys('timer-edit');
+    tEl.input.hidden = true; tEl.time.hidden = false;
+    const sec = save ? TM.parseDuration(tEl.input.value) : null;
+    if (sec) TM.setTotal(slot(), sec);
+    changedTimer();
+    if (!wrap.matches(':hover') && !pinned) { clearTimeout(closeTimer); closeTimer = setTimeout(close, 280); }
+  }
+  tEl.time.addEventListener('click', beginTimeEdit);
+  tEl.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') endTimeEdit(true); else if (e.key === 'Escape') endTimeEdit(false); });
+  tEl.input.addEventListener('blur', () => endTimeEdit(true));
   // ---------------------------------------------------------------- usage
   // Limits (% left) come from Claude Code's saved login, token totals from its local logs. Both are read in main.
   // Three views in one page: plan (limits + token total), local (tokens only), empty.
@@ -637,7 +940,18 @@
   setInterval(() => { if (isOpen() && wrap.dataset.page === 'usage') loadUsage(); }, 60000);
 
   // ---------------------------------------------------------------- notices (Claude finished / needs you, via hook.js)
-  const nEl = { root: $('#notice'), icon: $('#n-icon'), title: $('#n-title'), sub: $('#n-sub') };
+  const nEl = { root: $('#notice'), icon: $('#n-icon'), title: $('#n-title'), sub: $('#n-sub'), bar: $('#notice .n-bar'), more: $('#notice .n-more') };
+  // Flick a toast up (or scroll up on it) to send it away. The click that ends the gesture must not open Claude or the island.
+  let swipeY = null, swipedAt = 0;
+  function updateMore() { nEl.more.hidden = noticeQueue.length === 0; nEl.more.textContent = '+' + noticeQueue.length; }
+  function dismissCurrent() {
+    swipedAt = Date.now(); clearTimeout(noticeTimer); wrap.classList.remove('has-notice'); shownNotice = null;
+    clearTimeout(noticeGap); noticeGap = setTimeout(showNextNotice, 350);
+  }
+  nEl.root.addEventListener('pointerdown', (e) => { swipeY = e.clientY; });
+  nEl.root.addEventListener('pointermove', (e) => { if (swipeY !== null && e.buttons && swipeY - e.clientY > 14) { swipeY = null; dismissCurrent(); } });
+  nEl.root.addEventListener('pointerup', () => { swipeY = null; });
+  nEl.root.addEventListener('wheel', (e) => { if (e.deltaY < -10 && wrap.classList.contains('has-notice')) dismissCurrent(); }, { passive: true });
   const noticeQueue = [];
   let shownNotice = null;                                // the toast on screen (its session is where a click goes)
   let noticeShowing = false, noticeTimer = 0, noticeGap = 0;
@@ -646,57 +960,36 @@
     if (isOpen() || editing) { noticeGap = setTimeout(showNextNotice, 1000); return; }     // never on top of the open island
     const n = noticeQueue.shift();
     if (!n) { noticeShowing = false; wrap.classList.remove('has-notice'); return; }
+    clearTimeout(hudT); delete wrap.dataset.hud;                        // a toast replaces a volume HUD that is still up
     noticeShowing = true; noteActivity(); shownNotice = n;
+    const ms = n.duration ? n.duration * 1000 : n.kind === 'attention' ? 8000 : 5000;
+    nEl.root.style.setProperty('--toast-ms', ms + 'ms');
+    nEl.bar.style.animation = 'none'; void nEl.bar.offsetWidth; nEl.bar.style.animation = '';           // the line restarts for every toast
+    updateMore();
     if (n.kind === 'done') happyNext = true;                // the mascot is pleased when it comes back
+    else if (n.kind === 'attention') mascot.react('surprise');
     nEl.root.dataset.kind = n.kind; nEl.root.dataset.tone = n.tone || '';
     nEl.icon.setAttribute('href', n.tone === 'error' ? '#i-warn' : n.kind === 'attention' ? '#i-bell' : '#i-check');
     nEl.title.textContent = n.title; nEl.sub.textContent = n.sub;
     wrap.classList.remove('alert'); void wrap.offsetWidth; wrap.classList.add('alert');     // small wobble
     wrap.classList.add('has-notice');
     clearTimeout(noticeTimer);
-    noticeTimer = setTimeout(() => { wrap.classList.remove('has-notice'); noticeGap = setTimeout(showNextNotice, 500); }, n.duration ? n.duration * 1000 : n.kind === 'attention' ? 8000 : 5000);
+    noticeTimer = setTimeout(() => { wrap.classList.remove('has-notice'); shownNotice = null; noticeGap = setTimeout(showNextNotice, 500); }, n.duration ? n.duration * 1000 : n.kind === 'attention' ? 8000 : 5000);
   }
   function dismissNotices() {
-    noticeQueue.length = 0; noticeShowing = false;
+    noticeQueue.length = 0; noticeShowing = false; shownNotice = null;
     clearTimeout(noticeTimer); clearTimeout(noticeGap);
     wrap.classList.remove('has-notice');
   }
   function pushNotice(n) {
     if (!n || typeof n.title !== 'string') return;
-    if (S.quiet.dnd) return;                                   // do not disturb
+    if (isDnd()) return;                                       // do not disturb
     noticeQueue.push({ kind: n.kind === 'attention' ? 'attention' : 'done', tone: ['success', 'warning', 'error', 'info'].includes(n.tone) ? n.tone : '', duration: Number(n.duration) || 0, title: n.title, sub: String(n.sub || ''), session: typeof n.session === 'string' ? n.session.slice(0, 128) : '' });
     if (noticeQueue.length > 5) noticeQueue.shift();
-    if (!noticeShowing) showNextNotice();
+    if (!noticeShowing) showNextNotice(); else updateMore();
   }
   api.onNotice(pushNotice);
 
-  // ---------------------------------------------------------------- Claude sessions tab
-  $('#ag-list').addEventListener('click', (e) => { const r = e.target.closest('.ag-row[data-sid]'); if (r) openClaudeFor(r.dataset.sid); });
-  const STATUS_TEXT = { approval: 'Approve', waiting: 'Needs you', working: 'Working', quiet: 'Quiet', done: 'Done' };
-  const ago = (ms) => { const m = Math.floor(ms / 60000); return m < 1 ? 'just now' : m < 60 ? m + 'm ago' : Math.floor(m / 60) + 'h ago'; };
-  function renderAgents() {
-    const list = work.list || [], box = $('#ag-list');
-    $('#ag-empty').hidden = list.length > 0; box.hidden = list.length === 0;
-    const rows = Math.max(1, Math.floor(($('.pages').clientHeight - 32 + 4) / 36));              // as many 32px rows as fit under the header
-    const shown = list.slice(0, rows);
-    const busy = list.filter((x) => x.status !== 'done').length;
-    $('#ag-count').textContent = !list.length ? '' : (busy ? busy + ' active' : 'all done') + (list.length > shown.length ? ' · +' + (list.length - shown.length) + ' more' : '');
-    const now = Date.now();
-    const sig = shown.map((x) => x.id + ':' + x.status).join();
-    if (box.dataset.sig === sig) {                                            // same rows: only the times change
-      [...box.children].forEach((row, n) => { const x = shown[n]; row.lastChild.textContent = x.status === 'done' ? ago(now - x.since) : clockText((now - x.since) / 1000); });
-      return;
-    }
-    box.dataset.sig = sig;
-    box.replaceChildren(...shown.map((x, n) => {
-      const row = document.createElement('div'); row.className = 'ag-row'; row.dataset.st = x.status; if (x.id) row.dataset.sid = x.id; row.title = 'Open the window this session runs in'; row.style.setProperty('--n', String(n));
-      const st = document.createElement('span'); st.className = 'ag-st'; st.textContent = STATUS_TEXT[x.status] || x.status;
-      const name = document.createElement('span'); name.className = 'ag-name'; name.textContent = x.project || 'Claude Code';
-      const t = document.createElement('span'); t.className = 'ag-time';
-      t.textContent = x.status === 'done' ? ago(now - x.since) : clockText((now - x.since) / 1000);
-      row.append(st, name, t); return row;
-    }));
-  }
   // A working session that has gone silent (only known when the heartbeat hook is on): tell once per session
   const quietTold = new Set();
   function checkQuiet() {
@@ -712,13 +1005,14 @@
 
   // ---------------------------------------------------------------- Camera / microphone in use
   const privEl = $('#priv');
-  api.onPrivacy((s) => {
-    const cam = !!(s && s.camera), mic = !!(s && s.mic);
+  function renderPriv() {
+    const show = S.privacy.dot !== false, cam = show && privNow.camera, mic = show && privNow.mic;          // the watcher also runs for "Quiet during calls": the dot is its own setting
     privEl.querySelector('.p-cam').hidden = !cam; privEl.querySelector('.p-mic').hidden = !mic;
     privEl.hidden = !(cam || mic);
     const what = cam && mic ? 'Camera and microphone in use' : cam ? 'Camera in use' : mic ? 'Microphone in use' : '';
     privEl.setAttribute('aria-label', what); privEl.title = what;
-  });
+  }
+  api.onPrivacy((s) => { privNow = { camera: !!(s && s.camera), mic: !!(s && s.mic) }; renderPriv(); renderTray(); });
 
   // ---------------------------------------------------------------- Claude Code permission requests (approve-hook.js)
   // The island opens by itself on the request and stays open until it is answered. The answer goes back to the hook.
@@ -774,7 +1068,6 @@
     if (!s || typeof s.since !== 'number') return;
     work = { working: !!s.working, since: s.since, count: Number(s.count) || 0, list: Array.isArray(s.list) ? s.list : [] };
     checkQuiet();
-    renderAgents();
     updateMode();
   });
 
@@ -798,9 +1091,10 @@
     set('awake', awakeBtn.getAttribute('aria-pressed') === 'true'); set('dnd', S.quiet.dnd); set('mute', S.quiet.mute);
     q('theme').querySelector('.ql').textContent = 'Theme: ' + THEME_NAME[S.theme.mode];
     q('clip').hidden = !S.clipboard.enabled;
-    q('dns').hidden = !S.dns.tile; setDnsTile();
+    q('dns').hidden = !S.dns.tile; setDnsTile(); setDnspTile();
+    set('sysmute', vol.mute); q('sysmute').querySelector('.ql').textContent = vol.mute ? 'Unmute PC' : 'Mute PC';
     q('dnd').querySelector('.ql').textContent = S.quiet.dnd ? 'Disturb me' : 'Do not disturb';
-    gear.toggleAttribute('data-dnd', !!S.quiet.dnd);
+    gear.toggleAttribute('data-dnd', isDnd());
   }
   // NextDNS tile: its state comes from the main process (registry read, no rights needed)
   let dnsState = 'notinstalled', dnsBusyUi = false;
@@ -812,19 +1106,37 @@
     t.setAttribute('aria-checked', String(st === 'on'));
     t.title = st === 'notinstalled' ? 'Set up the DNS switch (asks for administrator approval once)' : st === 'custom' ? 'DNS was changed by hand. Click to restore NextDNS' : 'Turn NextDNS on or off';
   }
+  // DNS providers: one tile that steps through Automatic and the providers you installed
+  let dnspSt = { state: 'notinstalled', id: '', profiles: [] }, dnspBusy = false;
+  function setDnspTile() {
+    const t = tray.querySelector('[data-q="dnsp"]'); if (!t) return;
+    const has = dnspSt.profiles && dnspSt.profiles.length > 0;
+    t.hidden = !has; if (!has) return;
+    const cur = dnspSt.profiles.find((p) => p.id === dnspSt.id);
+    t.querySelector('.ql').textContent = dnspBusy ? 'Switching...' : dnspSt.state === 'profile' && cur ? cur.name : dnspSt.state === 'auto' ? 'DNS: Auto' : dnspSt.state === 'custom' ? 'DNS: custom' : dnspSt.state === 'mixed' ? 'DNS: mixed' : 'DNS';
+    t.setAttribute('aria-checked', String(dnspSt.state === 'profile'));
+    t.title = 'Click to switch to the next DNS provider (Automatic, ' + dnspSt.profiles.map((p) => p.name).join(', ') + ')';
+  }
+  async function refreshDnsp() { try { const r = await api.dnspStatus(); if (r && typeof r.state === 'string') dnspSt = r; } catch { /* keep */ } setDnspTile(); }
+  async function cycleDnsp() {
+    if (dnspBusy || !dnspSt.profiles.length) return;
+    const order = ['auto', ...dnspSt.profiles.map((p) => p.id)], at = dnspSt.state === 'profile' ? order.indexOf(dnspSt.id) : 0;
+    dnspBusy = true; setDnspTile();
+    try { const r = await api.dnspUse(order[(at + 1) % order.length]); if (r && typeof r.state === 'string' && Array.isArray(r.profiles)) dnspSt = r; } catch { /* keep */ }
+    dnspBusy = false; setDnspTile();
+  }
   async function refreshDns() {
     if (!S.dns.tile || !api.dnsStatus) return;
     try { const r = await api.dnsStatus(); if (r && typeof r.state === 'string') dnsState = r.state; } catch { /* keep the last state */ }
     setDnsTile();
   }
-  function showTray() { clearTimeout(trayCloseT); if (!isOpen() || settingsOpen) return; refreshDns(); renderTray(); tray.hidden = false; void tray.offsetWidth; tray.classList.add('show'); }
-  function hideTray() { clearTimeout(trayOpenT); clearTimeout(trayCloseT); tray.classList.remove('show'); quitArm = 0; tray.querySelector('[data-q="quit"]').classList.remove('armed'); tray.querySelector('[data-q="quit"] .ql').textContent = 'Quit'; trayCloseT = setTimeout(() => { if (!tray.classList.contains('show')) tray.hidden = true; }, 300); }
-  gear.addEventListener('mouseenter', () => { clearTimeout(trayCloseT); trayOpenT = setTimeout(showTray, 350); });
-  gear.addEventListener('mouseleave', () => { clearTimeout(trayOpenT); trayCloseT = setTimeout(hideTray, 280); });
-  tray.addEventListener('mouseenter', () => clearTimeout(trayCloseT));
-  tray.addEventListener('mouseleave', () => { trayCloseT = setTimeout(hideTray, 280); });
-  gear.addEventListener('contextmenu', (e) => { e.preventDefault(); showTray(); });
-  gear.addEventListener('click', () => { clearTimeout(trayOpenT); hideTray(); });          // opening Settings: the tray gets out of the way
+  function showTray() { clearTimeout(trayCloseT); if (!isOpen() || settingsOpen) return; refreshDns(); refreshDnsp(); renderTray(); tray.hidden = false; void tray.offsetWidth; tray.classList.add('show'); }
+  function hideTray() { try { trayBtn.setAttribute('aria-pressed', 'false'); } catch { /* not built yet */ } clearTimeout(trayOpenT); clearTimeout(trayCloseT); tray.classList.remove('show'); quitArm = 0; tray.querySelector('[data-q="quit"]').classList.remove('armed'); tray.querySelector('[data-q="quit"] .ql').textContent = 'Quit'; trayCloseT = setTimeout(() => { if (!tray.classList.contains('show')) tray.hidden = true; }, 300); }
+  // The quick actions have their own round button under the gear: a click opens them, another click (or anywhere else, or Esc) closes them
+  const trayBtn = $('#tray-btn');
+  trayBtn.addEventListener('click', () => { if (tray.classList.contains('show')) hideTray(); else showTray(); trayBtn.setAttribute('aria-pressed', String(tray.classList.contains('show'))); });
+  document.addEventListener('click', (e) => { if (tray.classList.contains('show') && !e.target.closest('.qtray, #tray-btn')) { hideTray(); trayBtn.setAttribute('aria-pressed', 'false'); } });
+  gear.addEventListener('click', () => { hideTray(); trayBtn.setAttribute('aria-pressed', 'false'); });          // opening Settings: the tray gets out of the way
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tray.classList.contains('show')) hideTray(); });
   tray.addEventListener('click', (e) => {
     const b = e.target.closest('[data-q]'); if (!b) return;
@@ -834,6 +1146,9 @@
     else if (k === 'mute') api.setSettings({ quiet: { mute: !S.quiet.mute } });
     else if (k === 'theme') api.setSettings({ theme: { mode: THEME_NEXT[S.theme.mode] } });
     else if (k === 'clip') api.clipboardClear();
+    else if (k === 'snip' || k === 'lock' || k === 'night' || k === 'calc') { api.quick(k); if (k !== 'night') { hideTray(); } }
+    else if (k === 'sysmute') { if (vol.pct >= 0) { vol = { ...vol, mute: !vol.mute }; api.setMute(vol.mute); renderTray(); } }
+    else if (k === 'dnsp') cycleDnsp();
     else if (k === 'dns') {
       if (dnsBusyUi) return;
       if (dnsState === 'notinstalled') { api.dnsSetup(); return; }                  // one-time setup: Windows asks for approval
@@ -863,6 +1178,23 @@
 
   // ---------------------------------------------------------------- Settings applied live: size, theme, tabs, units
   function visibleTabs() { return S.tabs.filter((t) => !S.hiddenTabs.includes(t)); }
+  // Each page can open the island a little differently: the timer is compact, the music page roomier (Settings > Island size > "Fit the size to the page").
+  // Never outside the limits Settings allows. Main is told the live size, so the settings card never lands on top of the island.
+  const PAGE_LIMITS = { w: [416, 640], h: [232, 340] };
+  function pageSize(name) {
+    const o = S.size.open, adapt = S.size.adaptive !== false;
+    const fit = (w, h) => ({ w: Math.max(PAGE_LIMITS.w[0], Math.min(PAGE_LIMITS.w[1], w)), h: Math.max(PAGE_LIMITS.h[0], Math.min(PAGE_LIMITS.h[1], h)) });
+    if (adapt && name === 'timer') return fit(o.w - 56, o.h);
+    if (adapt && name === 'music') return fit(o.w + 24, o.h + 16);
+    return { w: o.w, h: o.h };
+  }
+  let sentSize = '';
+  function applyPageSize() {
+    const sz = pageSize(wrap.dataset.page);
+    wrap.style.setProperty('--ow', sz.w + 'px'); wrap.style.setProperty('--oh', sz.h + 'px');
+    const key = sz.w + 'x' + sz.h;
+    if (key !== sentSize) { sentSize = key; try { api.reportSize && api.reportSize(sz); } catch { /* single island */ } }
+  }
   let appliedNavKey = '';
   function rebuildNav() {
     const vis = DyTabs.buildNav($('.nav'), S.tabs, S.hiddenTabs, wrap.dataset.page);
@@ -870,7 +1202,18 @@
   }
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const motionMode = () => (reduceMotion.matches ? 'off' : S.motion || 'expressive');
-  function applyMotion() { document.documentElement.dataset.motion = motionMode(); }
+  // Expressive motion uses real spring curves (spring.js sampled into linear() easings); Calm keeps the plain tokens.css curves.
+  const SPRING_VARS = ['--ease-open', '--ease-close', '--ease-press', '--spring', '--spring-soft', '--d-open', '--d-close', '--d-item'];
+  function applyMotion() {
+    const root = document.documentElement, m = motionMode();
+    root.dataset.motion = m;
+    if (m === 'expressive' && window.DySpring) {
+      const o = window.DySpring.easing(0.66, 24), c = window.DySpring.easing(0.92, 27), p = window.DySpring.easing(0.6, 28), set = (k, v) => root.style.setProperty(k, v);
+      set('--ease-open', o.css); set('--d-open', o.ms + 'ms');
+      set('--ease-close', c.css); set('--d-close', c.ms + 'ms');
+      set('--ease-press', p.css); set('--spring', p.css); set('--spring-soft', p.css); set('--d-item', Math.min(p.ms, 320) + 'ms');
+    } else for (const k of SPRING_VARS) root.style.removeProperty(k);
+  }
   reduceMotion.addEventListener('change', applyMotion);
   function applySettings(s) {
     if (!s || !s.size) return;
@@ -879,7 +1222,9 @@
     applyMotion();
     r.setProperty('--idle-w', s.size.idle.w + 'px'); r.setProperty('--idle-h', s.size.idle.h + 'px');
     r.setProperty('--open-w', s.size.open.w + 'px'); r.setProperty('--open-h', s.size.open.h + 'px');
+    applyPageSize();
     if (window.DyTheme) window.DyTheme.apply(s.theme);
+    applyArtGlow();
     const o = { hour: 'numeric', minute: '2-digit' };
     if (s.units.clock === '12') o.hour12 = true; else if (s.units.clock === '24') o.hour12 = false;
     timeFmt = new Intl.DateTimeFormat(undefined, o);
@@ -890,9 +1235,72 @@
     if (lastWeather) renderWeather(lastWeather);
     renderClipboard(cbItems);
     applyHome();
-    renderTray();
+    renderTray(); renderPriv();
     syncMascot(); updateVisibility();
   }
+
+  // ---------------------------------------------------------------- Calendar events: the Home card, the dots on the calendar, the "starting soon" chip
+  const evEl = { card: $('#h-ev'), t: $('#h-ev-t'), l: $('#h-ev-l') };
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const evWhen = (ev) => {
+    const s = new Date(ev.start), now = new Date(), tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    if (ev.allDay) return sameDay(s, now) ? 'Today' : sameDay(s, tomorrow) ? 'Tomorrow' : s.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+    if (ev.start <= Date.now()) return 'Now';
+    const mins = Math.round((ev.start - Date.now()) / 60000);
+    if (mins < 60) return 'in ' + mins + ' min';
+    return (sameDay(s, now) ? '' : sameDay(s, tomorrow) ? 'Tomorrow ' : s.toLocaleDateString([], { weekday: 'short' }) + ' ') + timeFmt.format(s);
+  };
+  // the next timed event that starts within 15 minutes (or has just started): this is what the chip shows
+  function soonEvent() {
+    const t = Date.now();
+    return evList.find((e) => !e.allDay && e.end > t && e.start - t <= 15 * 60000 && t - e.start < 10 * 60000) || null;
+  }
+  function renderEvents() {
+    evByDay = new Map();
+    for (const e of evList) {
+      const d = new Date(e.start), k = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      if (!evByDay.has(k)) evByDay.set(k, []);
+      evByDay.get(k).push(e.kind === 'task' ? '\u2610 ' + e.title : e.allDay ? e.title : timeFmt.format(d) + '  ' + e.title);
+    }
+    const next = evList.find((e) => e.kind !== 'task' && e.end > Date.now()) || null;
+    evEl.t.textContent = next ? next.title : (S.events && S.events.url ? 'Nothing coming up' : 'Add a calendar');
+    evEl.l.textContent = next ? evWhen(next) : 'Next event';
+    evEl.card.dataset.live = String(!!next && next.start <= Date.now() + 15 * 60000);
+    evEl.card.title = next && next.link ? 'Join: ' + next.title : '';
+    if (cal) cal.render();
+    renderSat();
+  }
+  evEl.card.addEventListener('click', () => { const next = evList.find((e) => e.kind !== 'task' && e.end > Date.now()); if (next && next.link) api.openEvent(next.id); else if (!(S.events && S.events.url)) api.toggleSettings(); });
+  api.onEvents && api.onEvents((r) => { evList = r && Array.isArray(r.list) ? r.list.filter((e) => e && typeof e.title === 'string' && Number.isFinite(e.start)) : []; renderEvents(); });
+  Promise.resolve(api.eventsGet && api.eventsGet()).then((r) => { if (r && Array.isArray(r.list) && r.list.length) { evList = r.list; renderEvents(); } }).catch(() => {});
+  setInterval(() => { if (evList.length) renderEvents(); }, 30 * 1000);                                    // "in 12 min" keeps counting
+
+  // Pointing at a date with something on it shows what (events, and tasks marked with a box)
+  const calTip = $('#cal-tip');
+  document.addEventListener('mouseover', (e) => {
+    const d = e.target.closest && e.target.closest('.cal-day[data-tip]');
+    if (!d) { calTip.hidden = true; return; }
+    const pg = $('.pages').getBoundingClientRect(), r = d.getBoundingClientRect(), box = wrap.getBoundingClientRect();
+    calTip.textContent = d.dataset.tip; calTip.hidden = false;
+    const w = calTip.offsetWidth, h = calTip.offsetHeight;
+    let x = r.left - box.left + r.width / 2 - w / 2; x = Math.max(pg.left - box.left, Math.min(pg.right - box.left - w, x));
+    let y = r.top - box.top - h - 6; if (y < pg.top - box.top - 8) y = r.bottom - box.top + 6;
+    calTip.style.left = x + 'px'; calTip.style.top = y + 'px';
+  });
+  document.addEventListener('mouseleave', () => { calTip.hidden = true; });
+
+  // Gmail card (Google): unread count and the latest sender; a click opens Gmail
+  let gSt = { status: 'off', mail: { unread: 0, latest: [] } };
+  function renderMail() {
+    const t = $('#h-mail-t'), l = $('#h-mail-l'), ok = gSt.status === 'ok' || gSt.status === 'error', m = gSt.mail || { unread: 0, latest: [] };
+    if (!ok && gSt.status !== 'needs-id') { t.textContent = 'Gmail'; l.textContent = 'Connect in Settings'; return; }
+    t.textContent = m.unread === 0 ? 'Inbox zero' : m.unread + (m.unread === 1 ? ' unread' : ' unread');
+    l.textContent = m.latest && m.latest[0] ? (m.latest[0].from ? m.latest[0].from + ': ' : '') + m.latest[0].subject : (m.unread ? 'Open Gmail' : 'All caught up');
+    $('#h-mail').title = (m.latest || []).map((x) => x.from + ' - ' + x.subject).join('\n');
+  }
+  $('#h-mail').addEventListener('click', () => { if (gSt.status === 'off') api.toggleSettings(); else api.googleOpen('mail'); });
+  api.onGoogle && api.onGoogle((g) => { if (g && typeof g.status === 'string') { gSt = g; renderMail(); } });
+  Promise.resolve(api.googleState && api.googleState()).then((g) => { if (g && typeof g.status === 'string') { gSt = g; renderMail(); } }).catch(() => {});
 
   // ---------------------------------------------------------------- Home layout (Settings > Home): calendar, and up to two cards
   const cdEl = { card: $('#h-cd'), t: $('#h-cd-t'), l: $('#h-cd-l') };
@@ -908,18 +1316,31 @@
   function applyHome() {
     const home = $('#p-home'), h = S.home;
     home.dataset.cal = h.calendar ? 'on' : 'off'; home.dataset.side = h.side;
-    const cards = { weather: $('#h-wx'), music: $('#h-mu'), countdown: cdEl.card };
+    const cards = { weather: $('#h-wx'), music: $('#h-mu'), countdown: cdEl.card, events: evEl.card, apps: $('#h-apps'), mail: $('#h-mail') };
     Object.values(cards).forEach((el) => { el.hidden = true; delete el.dataset.slot; });
     [h.first, h.second].forEach((id, i) => { const el = cards[id]; if (!el) return; el.hidden = false; el.dataset.slot = String(i + 1); el.style.order = String(i); });
-    renderCountdown();
+    renderCountdown(); renderEvents(); renderApps();
+  }
+  // App shortcuts card: one click opens the program (the page sends only the position in the saved list)
+  let appIcons = [], appKey = '';
+  async function renderApps() {
+    const box = $('#h-apps'), list = (S.shortcuts && S.shortcuts.apps) || [];
+    const key = JSON.stringify(list.map((a) => a.path));
+    if (key !== appKey) { appKey = key; try { const ic = await api.appIcons(); if (Array.isArray(ic)) appIcons = ic; } catch { appIcons = []; } }
+    if (!list.length) { const b = document.createElement('button'); b.className = 'app-btn app-add sl'; b.textContent = 'Add app shortcuts'; b.addEventListener('click', () => api.toggleSettings()); box.replaceChildren(b); return; }
+    box.replaceChildren(...list.map((a, i) => {
+      const b = document.createElement('button'); b.className = 'app-btn sl'; b.title = a.name; b.setAttribute('aria-label', 'Open ' + a.name);
+      if (appIcons[i]) { const im = document.createElement('img'); im.alt = ''; im.src = appIcons[i]; b.append(im); } else b.textContent = a.name.slice(0, 2);
+      b.addEventListener('click', () => api.openApp(i)); return b;
+    }));
   }
   setInterval(renderCountdown, 5 * 60 * 1000);
 
   // ---------------------------------------------------------------- Home: calendar, battery, keep-awake
-  cal = window.DyCalendar.mount($('#h-cal'), { getWeekStart: () => S.calendar.weekStart });
+  cal = window.DyCalendar.mount($('#h-cal'), { getWeekStart: () => S.calendar.weekStart, getEvents: (isoDay) => evByDay.get(isoDay) || null });
 
   const battEl = { chip: $('#h-batt'), icon: $('#h-batt-i'), text: $('#h-batt-t') };
-  let battWarned = false;
+  let battWarned = false, battPrev = null;
   function renderBattery(b) {
     const pct = Math.round(b.level * 100);
     const noBattery = b.charging && b.level === 1 && b.chargingTime === 0 && b.dischargingTime === Infinity;   // a desktop PC reports "full and plugged in"
@@ -928,7 +1349,9 @@
     battEl.icon.setAttribute('href', b.charging ? '#i-bolt' : '#i-batt');
     battEl.chip.classList.toggle('low', !b.charging && pct <= 15);
     battEl.chip.title = b.charging ? 'Charging' : 'On battery';
-    if (!b.charging && pct <= 15 && !battWarned && S.battery.warn) { battWarned = true; pushNotice({ kind: 'attention', title: 'Battery low', sub: pct + '% left. Plug in soon' }); }
+    if (battPrev !== null && battPrev !== b.charging && !noBattery && S.devices && S.devices.toasts) pushNotice({ kind: 'done', tone: 'info', duration: 3, title: b.charging ? 'Charging' : 'Unplugged', sub: pct + '%' });
+    battPrev = b.charging;
+    if (!b.charging && pct <= 15 && !battWarned && S.battery.warn) { mascot.react('sad'); battWarned = true; pushNotice({ kind: 'attention', title: 'Battery low', sub: pct + '% left. Plug in soon' }); }
     if (b.charging || pct > 20) battWarned = false;
   }
   if (navigator.getBattery) {
@@ -952,25 +1375,43 @@
   Promise.resolve(api.awakeGet && api.awakeGet()).then((on) => { if (on) showAwake(true); }).catch(() => {});
 
   // ---------------------------------------------------------------- Clipboard history tab (opt-in)
-  const cb = { list: $('#cb-list'), empty: $('#cb-empty'), clear: $('#cb-clear') };
-  let cbItems = [], copiedText = '', copiedUntil = 0;
+  const cb = { list: $('#cb-list'), empty: $('#cb-empty'), clear: $('#cb-clear'), q: $('#cb-q') };
+  let cbItems = [], copiedId = -1, copiedUntil = 0, cbQuery = '';
   function renderClipboard(list) {
-    cbItems = Array.isArray(list) ? list : [];
-    const room = Math.max(1, Math.floor(($('.pages').clientHeight - 32 + 4) / 32));          // 28px rows, 4px gap, under a 24px header
-    cb.list.replaceChildren(...cbItems.slice(0, room).map((t, i) => {
-      const b = document.createElement('button'); b.className = 'cb-item sl' + (t === copiedText && Date.now() < copiedUntil ? ' copied' : ''); b.dataset.i = String(i); b.style.setProperty('--n', String(i)); b.title = t.slice(0, 300);
-      const s = document.createElement('span'); s.textContent = t.replace(/\s+/g, ' ').trim() || '(blank)';
-      b.append(s); return b;
+    cbItems = Array.isArray(list) ? list.filter((x) => x && Number.isInteger(x.id) && (x.kind === 'text' || x.kind === 'image')) : [];
+    const words = cbQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = words.length ? cbItems.filter((x) => x.kind === 'text' && words.every((w) => String(x.text).toLowerCase().includes(w))) : cbItems;
+    let budget = $('.pages').clientHeight - 32 + 4;                                       // under a 24px header and an 8px gap; rows are 28px (44px for a picture) plus 4px
+    const rows = [];
+    for (const x of shown) { const h = x.kind === 'image' ? 48 : 32; if (budget < h && rows.length) break; budget -= h; rows.push(x); }
+    cb.list.replaceChildren(...rows.map((x, i) => {
+      const row = document.createElement('div'); row.className = 'cb-row'; row.style.setProperty('--n', String(i));
+      const b = document.createElement('button'); b.className = 'cb-item sl' + (x.kind === 'image' ? ' img' : '') + (x.id === copiedId && Date.now() < copiedUntil ? ' copied' : ''); b.dataset.id = String(x.id); b.style.setProperty('--n', String(i));
+      if (x.kind === 'image') { const im = document.createElement('img'); im.alt = 'Copied picture'; im.src = String(x.thumb || ''); b.append(im); b.title = 'A copied picture'; }
+      else { const s = document.createElement('span'); s.textContent = String(x.text).replace(/\s+/g, ' ').trim() || '(blank)'; b.append(s); b.title = String(x.text).slice(0, 300); }
+      const pin = document.createElement('button'); pin.className = 'cb-pin sl'; pin.dataset.pin = String(x.id); pin.setAttribute('aria-pressed', String(!!x.pinned)); pin.setAttribute('aria-label', x.pinned ? 'Unpin' : 'Pin'); pin.title = x.pinned ? 'Unpin' : 'Pin to the top';
+      pin.innerHTML = '<svg class="i" width="14" height="14"><use href="#i-keep"/></svg>';
+      row.append(b, pin); return row;
     }));
-    cb.empty.hidden = cbItems.length > 0; cb.list.hidden = cbItems.length === 0;
+    const none = shown.length === 0;
+    cb.empty.hidden = !none; cb.list.hidden = none;
+    cb.empty.textContent = cbItems.length ? 'Nothing matches that' : (S.clipboard && S.clipboard.images ? 'Copy text or a picture and it shows up here' : 'Copy something and it shows up here');
   }
   cb.list.addEventListener('click', async (e) => {
+    const pin = e.target.closest('.cb-pin');
+    if (pin) { api.clipboardPin(Number(pin.dataset.pin)); return; }
     const b = e.target.closest('.cb-item'); if (!b) return;
-    const text = cbItems[Number(b.dataset.i)];
-    copiedText = text; copiedUntil = Date.now() + 1200;                         // remembered by text: the list is rebuilt when the copy lands
-    if (await api.clipboardCopy(Number(b.dataset.i))) { renderClipboard(cbItems); setTimeout(() => renderClipboard(cbItems), 1250); }
+    const id = Number(b.dataset.id);
+    copiedId = id; copiedUntil = Date.now() + 1200;                              // remembered by id: the list is rebuilt when the copy lands
+    const ok = await (S.clipboard && S.clipboard.paste && api.clipboardPaste ? api.clipboardPaste(id) : api.clipboardCopy(id));
+    if (ok) { renderClipboard(cbItems); setTimeout(() => renderClipboard(cbItems), 1250); }
   });
   cb.clear.addEventListener('click', () => api.clipboardClear());
+  // the search box: the window takes the keyboard while it has the focus
+  cb.q.addEventListener('focus', () => { editing = true; grabKeys('clip-search'); });
+  cb.q.addEventListener('blur', () => { editing = false; releaseKeys('clip-search'); if (!wrap.matches(':hover') && !pinned) { clearTimeout(closeTimer); closeTimer = setTimeout(close, 280); } });
+  cb.q.addEventListener('input', () => { cbQuery = cb.q.value; renderClipboard(cbItems); });
+  cb.q.addEventListener('keydown', (e) => { if (e.key === 'Escape') { cb.q.value = ''; cbQuery = ''; renderClipboard(cbItems); cb.q.blur(); } });
   api.onClipboard(renderClipboard);
 
   // ---------------------------------------------------------------- Auto-hide (see visibility.js) and the global hotkey
@@ -982,14 +1423,32 @@
     });
     wrap.classList.toggle('autohidden', !v.island);
   }
-  setInterval(updateVisibility, 120);
+  setInterval(() => { if (S.autoHide || wrap.classList.contains('autohidden')) updateVisibility(); }, 120);   // nothing can be auto-hidden with the setting off: do not wake up for it
   api.onNear((v) => { near = v; updateVisibility(); });
+  function armHotkeyTimer() {
+    clearTimeout(hotkeyTimer);
+    hotkeyTimer = setTimeout(() => { hotkeyReveal = false; pinned = false; if (!wrap.matches(':hover') && !editing) close(); updateVisibility(); }, 8000);
+  }
+  // Keys while the island has the keyboard (opened with the shortcut): arrows or 1-9 switch tabs, Space plays and pauses, Up / Down is the volume, Esc closes
+  function stepTab(d) { const vis = visibleTabs(), cur = vis.indexOf(wrap.dataset.page); if (cur < 0) return; go(vis[(cur + d + vis.length) % vis.length]); }
+  document.addEventListener('keydown', (e) => {
+    if (!isOpen() || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;          // typing in the city box
+    if (hotkeyReveal) armHotkeyTimer();                                                                  // using the keys keeps it open
+    const page = wrap.dataset.page;
+    if (e.key === 'ArrowRight' && page !== 'approve') { e.preventDefault(); stepTab(1); }
+    else if (e.key === 'ArrowLeft' && page !== 'approve') { e.preventDefault(); stepTab(-1); }
+    else if (/^[1-9]$/.test(e.key) && page !== 'approve') { const vis = visibleTabs(), t = vis[Number(e.key) - 1]; if (t) { e.preventDefault(); go(t); } }
+    else if (e.key === 'Escape' && !tray.classList.contains('show')) { if (editing) return; hotkeyReveal = false; pinned = false; close(true); updateVisibility(); }
+    else if ((e.key === ' ' || e.key === 'MediaPlayPause') && page === 'music' && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); api.media('toggle'); }
+    else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && page === 'music') { e.preventDefault(); nudgeVolume(e.key === 'ArrowUp' ? 5 : -5); }
+  });
   api.onHotkey((wantOpen) => {
     clearTimeout(hotkeyTimer);
     if (typeof wantOpen === 'boolean' && wantOpen === isOpen()) { if (wantOpen) { /* already open: just keep it up a while */ } else return; }
     if (typeof wantOpen === 'boolean' ? !wantOpen : isOpen()) { if (editing) endEdit(false); hotkeyReveal = false; pinned = false; close(true); updateVisibility(); return; }   // pressed again: close it (and let go of the keyboard if the city box had it)
-    hotkeyReveal = true; pinned = true; noteActivity(); open(); updateVisibility();
-    hotkeyTimer = setTimeout(() => { hotkeyReveal = false; pinned = false; if (!wrap.matches(':hover') && !editing) close(); updateVisibility(); }, 8000);
+    hotkeyReveal = true; pinned = true; noteActivity(); open(); updateVisibility(); grabKeys('hotkey');
+    armHotkeyTimer();
   });
 
   // ---------------------------------------------------------------- Mascot: cylinder eyes while the island idles
@@ -1019,7 +1478,7 @@
       eyesOn = false; delete wrap.dataset.eyes; mascot.stop(); api.mascotWatch(false);
     }
   }
-  setInterval(syncMascot, 500);
+  setInterval(() => { if (S.mascot.enabled || eyesOn) syncMascot(); }, 500);        // no mascot, no checking
   api.onGaze((g) => { if (g) mascot.lookAt(g.nx, g.ny); });
 
   applySettings(FALLBACK);

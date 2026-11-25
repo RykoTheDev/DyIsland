@@ -15,6 +15,8 @@ const clip = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().sl
 const plain = (v) => String(v == null ? '' : v).replace(/\r?\n/g, ' \u21b5 ').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '');
 const clipE = (s, n) => { const t = clip(s, n + 1); return t.length > n ? t.slice(0, n - 1) + '…' : t; };   // shows a … when something was cut
 
+// the agent that sent it (agent-hook.js adds a short plain name); Claude Code's own hook sends none
+const whoOf = (p) => { const a = String(p.agent || '').toLowerCase().replace(/[^a-z0-9 ._-]/g, '').slice(0, 20); return a ? a[0].toUpperCase() + a.slice(1) : 'Claude'; };
 const pidOf = (p) => (Number.isInteger(p.pid) && p.pid > 4 && p.pid < 4194304 ? p.pid : 0);
 const idOf = (p) => (typeof p.session_id === 'string' && p.session_id ? p.session_id.slice(0, 128) : 'default');
 
@@ -29,14 +31,14 @@ function parse(p) {
     out.activity = { type: 'start', id: idOf(p), project: clip(project, 60), pid: pidOf(p) };
   } else if (ev === 'Stop') {
     out.activity = { type: 'end', id: idOf(p), pid: pidOf(p) };
-    out.notice = { kind: 'done', title: 'Claude finished', sub: clip(project || 'Task complete', 80), session: idOf(p) };
+    out.notice = { kind: 'done', title: whoOf(p) + ' finished', sub: clip(project || 'Task complete', 80), session: idOf(p) };
   } else if (ev === 'SessionEnd') {
     out.activity = { type: 'gone', id: idOf(p), pid: pidOf(p) };
   } else if (ev === 'PreToolUse' || ev === 'PostToolUse') {
     out.activity = { type: 'touch', id: idOf(p), project: clip(project, 60), pid: pidOf(p) };            // heartbeat only: keeps a long task from timing out
   } else if (ev === 'Notification') {
     out.activity = { type: 'wait', id: idOf(p), project: clip(project, 60), pid: pidOf(p) };
-    out.notice = { kind: 'attention', title: 'Claude needs you', sub: clip(p.message || project || 'Waiting for input', 120), session: idOf(p) };
+    out.notice = { kind: 'attention', title: whoOf(p) + ' needs you', sub: clip(p.message || project || 'Waiting for input', 120), session: idOf(p) };
   } else if (typeof p.title === 'string' && p.title) {
     const tone = ['success', 'warning', 'error', 'info'].includes(p.tone) ? p.tone : (p.kind === 'attention' ? 'warning' : 'success');
     const secs = Number(p.duration);

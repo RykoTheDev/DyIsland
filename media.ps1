@@ -1,6 +1,7 @@
 # Persistent helper: reads the Windows media session (SMTC) and prints one JSON line per second.
-# Commands arrive on stdin, one per line: toggle | play | pause | next | prev | seek <seconds>
+# Commands arrive on stdin, one per line: toggle | play | pause | next | prev | shuffle | repeat | seek <seconds>
 # Needs Windows PowerShell 5.1 (powershell.exe), which ships with Windows.
+param([string]$LogFile = '')     # where failures are written (the app passes a path in the user's data folder; the install folder is read-only)
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
@@ -19,10 +20,21 @@ $null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaPro
 $script:lastKey = ''
 $script:artTries = 0
 $script:artKey = ''
+# Windows PowerShell 5.1 cannot subscribe to WinRT events (Register-ObjectEvent: "cannot subscribe to Windows RT events"), so the session is still
+# polled once a second. What changed is the OUTPUT: a line is printed only when something changed (track, play state, a seek), plus a slow
+# heartbeat. The page extrapolates the position between lines, and main.js replays the last line to a window that opens later.
+$script:lastSig = ''
+$script:lastPos = 0.0
+$script:lastStatus = ''
+$script:lastEmitAt = [DateTime]::UtcNow.AddDays(-1)
 
-function Emit-None($err) {
+function Emit-None($err, [switch]$Force) {
   $script:lastKey = ''      # so art is re-sent when the same track comes back
   $script:artTries = 0
+  $nowU = [DateTime]::UtcNow
+  $sig = 'none|' + $err
+  if (-not $Force -and $sig -eq $script:lastSig -and ($nowU - $script:lastEmitAt).TotalSeconds -lt 10) { return }
+  $script:lastSig = $sig; $script:lastEmitAt = $nowU; $script:lastStatus = ''
   if ($err) {
     $msg = ([string]$err); if ($msg.Length -gt 120) { $msg = $msg.Substring(0, 120) }
     [Console]::Out.WriteLine((@{ none = $true; err = $msg } | ConvertTo-Json -Compress))   # shown in the Music tab
@@ -31,15 +43,17 @@ function Emit-None($err) {
   }
 }
 
+$null = [Windows.Media.MediaPlaybackAutoRepeatMode, Windows.Media, ContentType = WindowsRuntime]
 $null = [Windows.Storage.Streams.DataReader, Windows.Storage.Streams, ContentType = WindowsRuntime]
 $null = [Windows.Storage.Streams.IInputStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
 $script:artLogs = 0
 
-# Failures are written to media.log next to this script (first few only), so a missing cover is diagnosable
+# Failures are written to the log file (first few only), so a missing cover is diagnosable
 function Log-Art($m) {
   if ($script:artLogs -ge 24) { return }
   $script:artLogs++
-  try { Add-Content -Path (Join-Path $PSScriptRoot 'media.log') -Value ('{0} art: {1}' -f (Get-Date -Format s), $m) } catch {}
+  if (-not $LogFile) { return }
+  try { Add-Content -Path $LogFile -Value ('{0} art: {1}' -f (Get-Date -Format s), $m) } catch {}
 }
 
 $null = [Windows.Foundation.IAsyncInfo, Windows.Foundation, ContentType = WindowsRuntime]
@@ -161,10 +175,10 @@ function Get-Art($props) {
   }
 }
 
-function Emit-State {
+function Emit-State([switch]$Force) {
   try {
     $s = $mgr.GetCurrentSession()
-    if ($null -eq $s) { Emit-None; return }
+    if ($null -eq $s) { Emit-None -Force:$Force; return }
     $props = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
     $info = $s.GetPlaybackInfo()
     $tl = $s.GetTimelineProperties()
@@ -178,7 +192,11 @@ function Emit-State {
     if ($dur -gt 0 -and $pos -gt $dur) { $pos = $dur }
     if ($pos -lt 0) { $pos = 0 }
     $key = "$($props.Title)|$($props.Artist)"
+    $shuffle = $null; try { $sh = $info.IsShuffleActive; if ($null -ne $sh) { $shuffle = [bool]$sh } } catch {}
+    $repeat = ''; try { $rp = $info.AutoRepeatMode; if ($null -ne $rp) { $repeat = [string]$rp } } catch {}
     $o = [ordered]@{
+      shuffle = $shuffle
+      repeat = $repeat
       title  = [string]$props.Title
       artist = [string]$props.Artist
       status = $status
@@ -200,9 +218,18 @@ function Emit-State {
         if ($script:artTries -ge 5) { $script:lastKey = $key; $script:artTries = 0 }
       }
     }
+    # Print only what changed (see the note at the top): same track + state, no seek, no cover to send, heartbeat not due -> stay quiet
+    $nowU = [DateTime]::UtcNow
+    $sig = "$key|$status|$([math]::Round($dur))|$($o.app)|$shuffle|$repeat"
+    $expected = $script:lastPos + $(if ($script:lastStatus -eq 'Playing') { ($nowU - $script:lastEmitAt).TotalSeconds } else { 0 })
+    $jumped = [math]::Abs($pos - $expected) -gt 2.5
+    $beat = if ($status -eq 'Playing') { 4 } else { 10 }
+    $artPending = $o.Contains('art') -or ($key -ne $script:lastKey)
+    if (-not $Force -and -not $artPending -and $sig -eq $script:lastSig -and -not $jumped -and ($nowU - $script:lastEmitAt).TotalSeconds -lt $beat) { return }
+    $script:lastSig = $sig; $script:lastPos = $pos; $script:lastStatus = $status; $script:lastEmitAt = $nowU
     [Console]::Out.WriteLine(($o | ConvertTo-Json -Compress))
   } catch {
-    Emit-None $_.Exception.Message
+    Emit-None $_.Exception.Message -Force:$Force
   }
 }
 
@@ -217,6 +244,8 @@ function Run-Command($line) {
       'pause'  { Await ($s.TryPauseAsync()) ([bool]) | Out-Null }
       'next'   { Await ($s.TrySkipNextAsync()) ([bool]) | Out-Null }
       'prev'   { Await ($s.TrySkipPreviousAsync()) ([bool]) | Out-Null }
+      'shuffle' { $cur = $s.GetPlaybackInfo().IsShuffleActive; Await ($s.TryChangeShuffleActiveAsync(-not [bool]$cur)) ([bool]) | Out-Null }
+      'repeat'  { $cur = [string]$s.GetPlaybackInfo().AutoRepeatMode; $next = switch ($cur) { 'None' { 'List' } 'List' { 'Track' } default { 'None' } }; Await ($s.TryChangeAutoRepeatModeAsync([Windows.Media.MediaPlaybackAutoRepeatMode]$next)) ([bool]) | Out-Null }
       'seek'   {
         $sec = [double]$parts[1]
         Await ($s.TryChangePlaybackPositionAsync([long]($sec * 10000000))) ([bool]) | Out-Null
@@ -245,7 +274,7 @@ while ($true) {
     $reader = $stdin.ReadLineAsync()
     Run-Command $line
     Start-Sleep -Milliseconds 150
-    Emit-State
+    Emit-State -Force
   }
   if ($tick % 4 -eq 0) { Emit-State }
   Start-Sleep -Milliseconds 250

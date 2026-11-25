@@ -33,6 +33,8 @@
     <button class="icon-btn sl" id="close" aria-label="Close settings"><svg width="24" height="24"><use href="#i-close"/></svg></button>
   </header>
 
+  <nav class="stabs" id="stabs" role="tablist" aria-label="Settings sections"></nav>
+
   <div class="search-wrap">
     <input class="search" id="q" type="search" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false">
   </div>
@@ -61,11 +63,13 @@
         <div class="seg" role="radiogroup" aria-label="Expand the island on" data-bind="openOn"><button role="radio" data-v="click">On click</button><button role="radio" data-v="hover">On hover</button></div></div>
       <label class="row"><span class="row-text"><b>Hide the island by default</b><small>Touch the top centre of the screen to bring it back</small></span><span class="switch"><input type="checkbox" data-bind="autoHide"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <label class="row"><span class="row-text"><b>Hide in full-screen apps</b><small>Games, video and presentations</small></span><span class="switch"><input type="checkbox" data-bind="hideInFullscreen"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Cover glow in the Music tab</b><small>The Music tab glows softly with the colors of the album cover. The rest of the island keeps your theme</small></span><span class="switch"><input type="checkbox" data-bind="music.artColors"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <label class="row"><span class="row-text"><b>Mascot eyes</b><small>Two little eyes keep you company while the island is idle</small></span><span class="switch"><input type="checkbox" data-bind="mascot.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <div class="row slider" data-needs="mascot.enabled"><span class="row-text"><b>Eyes appear after</b></span><output data-out="mascot.delay" data-unit=" s"></output><input type="range" min="3" max="60" step="1" data-bind="mascot.delay" aria-label="Seconds of idling before the eyes appear"></div>
       <label class="row"><span class="row-text"><b>Split status chips</b><small>When two things happen at once, show both side by side</small></span><span class="switch"><input type="checkbox" data-bind="split.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <div class="field" data-needs="split.enabled"><span class="field-label">Which leads</span>
         <div class="seg" role="radiogroup" aria-label="Which status chip leads" data-bind="split.lead"><button role="radio" data-v="auto">Auto</button><button role="radio" data-v="work">Claude</button><button role="radio" data-v="timer">Timer</button><button role="radio" data-v="limit">Limit</button></div></div>
+      <label class="row"><span class="row-text"><b>Volume on the island</b><small>Shows the volume when you change it with the keys or the wheel. The Windows volume pop-up still appears as well</small></span><span class="switch"><input type="checkbox" data-bind="hud.volume"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <label class="row"><span class="row-text"><b>Camera and microphone dot</b><small>A small dot on the island while an app is using your camera (green) or microphone (orange)</small></span><span class="switch"><input type="checkbox" data-bind="privacy.dot"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
     </section>
 
@@ -88,6 +92,7 @@
       <div class="sub-title">Hovered and expanded</div>
       <div class="row slider"><span class="row-text"><b>Width</b></span><output data-out="size.open.w" data-unit=" px"></output><input type="range" min="416" max="640" step="8" data-bind="size.open.w" aria-label="Width of the open island"></div>
       <div class="row slider"><span class="row-text"><b>Height</b></span><output data-out="size.open.h" data-unit=" px"></output><input type="range" min="232" max="340" step="4" data-bind="size.open.h" aria-label="Height of the open island"></div>
+      <label class="row"><span class="row-text"><b>Fit the size to the page</b><small>The timer opens a little smaller and the music page a little bigger</small></span><span class="switch"><input type="checkbox" data-bind="size.adaptive"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <button class="tonal-btn sl" id="resetSizes">Reset sizes</button>
     </section>
 
@@ -96,8 +101,15 @@
       <label class="row"><span class="row-text"><b>Calendar</b><small>The month grid on the Home page</small></span><span class="switch"><input type="checkbox" data-bind="home.calendar"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <div class="field" data-needs="home.calendar"><span class="field-label">Calendar side</span>
         <div class="seg" role="radiogroup" aria-label="Calendar side" data-bind="home.side"><button role="radio" data-v="left">Left</button><button role="radio" data-v="right">Right</button></div></div>
-      <div class="field"><span class="field-label">First card</span><select class="select" data-bind="home.first" aria-label="First card"><option value="weather">Weather</option><option value="music">Music</option><option value="countdown">Countdown</option><option value="none">Nothing</option></select></div>
-      <div class="field"><span class="field-label">Second card</span><select class="select" data-bind="home.second" aria-label="Second card"><option value="weather">Weather</option><option value="music">Music</option><option value="countdown">Countdown</option><option value="none">Nothing</option></select></div>
+      <div class="field"><span class="field-label">First card</span><select class="select" data-bind="home.first" aria-label="First card"><option value="weather">Weather</option><option value="music">Music</option><option value="countdown">Countdown</option><option value="events">Next event</option><option value="apps">App shortcuts</option><option value="mail">Gmail</option><option value="none">Nothing</option></select></div>
+      <div class="field"><span class="field-label">Second card</span><select class="select" data-bind="home.second" aria-label="Second card"><option value="weather">Weather</option><option value="music">Music</option><option value="countdown">Countdown</option><option value="events">Next event</option><option value="apps">App shortcuts</option><option value="mail">Gmail</option><option value="none">Nothing</option></select></div>
+      <div class="field"><span class="field-label">App shortcuts</span>
+        <div class="app-list" id="appList"></div>
+        <button class="tonal-btn sl" id="appAdd">Add a program</button>
+        <span class="hint">The App shortcuts card on Home opens these with one click (up to 8). Pick it as the first or second card above.</span></div>
+      <div class="field"><span class="field-label">Calendar link</span>
+        <input class="select" type="text" maxlength="600" placeholder="Paste a secret iCal (.ics) address" data-bind="events.url" aria-label="Calendar link" autocomplete="off" spellcheck="false">
+        <span class="hint">Adds a Next event card, dots on the calendar and a chip when something starts within 15 minutes. Google, Outlook and iCloud give you a "secret address in iCal format". Only https links work. It is read-only, stored in your settings, and left out when you export them.</span></div>
       <div class="field"><span class="field-label">Countdown</span>
         <input class="select" type="text" maxlength="40" placeholder="What are you counting down to?" data-bind="home.countdown.label" aria-label="Countdown name" autocomplete="off" spellcheck="false">
         <input class="select" type="date" data-bind="home.countdown.date" aria-label="Countdown date"></div>
@@ -112,6 +124,11 @@
     <section class="group" aria-labelledby="g-alerts">
       <h2 id="g-alerts" class="g-title">Alerts</h2>
       <label class="row"><span class="row-text"><b>Do not disturb</b><small>No toasts, no approval cards (Claude asks in the terminal) and no sounds</small></span><span class="switch"><input type="checkbox" data-bind="quiet.dnd"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Quiet during calls</b><small>Turns Do not disturb on by itself while an app is using your camera or microphone, and off again afterwards. Your own Do not disturb setting is never changed</small></span><span class="switch"><input type="checkbox" data-bind="meetings.dnd"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Windows notifications on the island</b><small>Shows the notifications other apps send (title and text) on the island for a few seconds. The Windows pop-up still appears. They are read from Windows on this PC, shown and forgotten: not saved, not logged, not sent anywhere</small></span><span class="switch"><input type="checkbox" data-bind="notifications.mirror"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <div class="field" data-needs="notifications.mirror"><span class="field-label">Only from these apps</span>
+        <input class="select" type="text" maxlength="200" placeholder="Empty = every app. Or: Slack, Outlook" data-bind="notifications.apps" aria-label="Only mirror notifications from these apps, separated by commas" autocomplete="off" spellcheck="false"></div>
+      <label class="row"><span class="row-text"><b>Device toasts</b><small>A heads-up when a Bluetooth device connects or the charger is plugged in or out</small></span><span class="switch"><input type="checkbox" data-bind="devices.toasts"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <label class="row"><span class="row-text"><b>Mute sounds</b><small>Silences the timer and alert chimes only</small></span><span class="switch"><input type="checkbox" data-bind="quiet.mute"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <label class="row"><span class="row-text"><b>Usage pace warning</b><small>Tells you when Claude is on course to run out before the limit resets</small></span><span class="switch"><input type="checkbox" data-bind="usage.forecast"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <label class="row"><span class="row-text"><b>Limit reset alert</b><small>A heads-up when a limit starts over</small></span><span class="switch"><input type="checkbox" data-bind="usage.resetAlert"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
@@ -133,7 +150,15 @@
 
     <section class="group" aria-labelledby="g-clip">
       <h2 id="g-clip" class="g-title">Clipboard</h2>
-      <label class="row"><span class="row-text"><b>Clipboard history</b><small>Adds a Clipboard tab. Text only, kept in memory, gone when you quit</small></span><span class="switch"><input type="checkbox" data-bind="clipboard.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Clipboard history</b><small>Adds a Clipboard tab. Kept in memory and gone when you quit, unless you turn on one of the extras below. Anything a password manager marks as secret is never recorded</small></span><span class="switch"><input type="checkbox" data-bind="clipboard.enabled"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+    </section>
+
+    <section class="group" aria-labelledby="g-clip2">
+      <h2 id="g-clip2" class="g-title">Clipboard extras</h2>
+      <p class="g-sub">Each of these is off by default, because each goes beyond "text, in memory, gone when you quit".</p>
+      <label class="row"><span class="row-text"><b>Remember images</b><small>Copied pictures show up as thumbnails. Kept in memory only (5 at most), never saved</small></span><span class="switch"><input type="checkbox" data-bind="clipboard.images"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Click to paste</b><small>Clicking an item also pastes it into the app you were in (DyIsland sends Ctrl+V for you)</small></span><span class="switch"><input type="checkbox" data-bind="clipboard.paste"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Keep pinned text between runs</b><small>Pinned text is saved in DyIsland's data folder on this PC (pins.json) so it is still there after a restart. Unpin it, or switch this off, to remove it</small></span><span class="switch"><input type="checkbox" data-bind="clipboard.persistPins"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
     </section>
 
     <section class="group" aria-labelledby="g-region">
@@ -155,6 +180,50 @@
       <p class="hint" id="hooksNote" hidden>Copied. Paste it into ~/.claude/settings.json (merge it into an existing "hooks" block)</p>
     </section>
 
+    <section class="group" aria-labelledby="g-google">
+      <h2 id="g-google" class="g-title">Google</h2>
+      <p class="g-sub">Shows your Google Calendar events and Tasks (dots on the dates, a tooltip when you point at one) and the unread count of Gmail. Read-only: DyIsland can look, never change or send.</p>
+      <div class="field"><span class="field-label">Your Google client</span>
+        <input class="select" type="text" maxlength="200" placeholder="Client ID (ends with .apps.googleusercontent.com)" data-bind="google.clientId" aria-label="Google client ID" autocomplete="off" spellcheck="false">
+        <input class="select" type="text" maxlength="120" placeholder="Client secret" data-bind="google.clientSecret" aria-label="Google client secret" autocomplete="off" spellcheck="false">
+        <span class="hint">Google only lets an app use your account through a client you create: in the Google Cloud console make a free project, turn on the Calendar, Tasks and Gmail APIs, and create an OAuth client of type "Desktop app". Paste its ID and secret here. They stay on this PC and are left out when you export your settings.</span></div>
+      <label class="row"><span class="row-text"><b>Calendar events</b></span><span class="switch"><input type="checkbox" data-bind="google.calendar"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Tasks</b><small>Tasks with a due date, on that date</small></span><span class="switch"><input type="checkbox" data-bind="google.tasks"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Gmail</b><small>Unread count and the latest unread senders and subjects (the Mail card on Home)</small></span><span class="switch"><input type="checkbox" data-bind="google.mail"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <label class="row"><span class="row-text"><b>Toast for new email</b></span><span class="switch"><input type="checkbox" data-bind="google.mailToast"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
+      <p class="hint" id="googleState">Not connected.</p>
+      <div class="btn-row">
+        <button class="tonal-btn sl" id="googleConnect">Connect Google</button>
+        <button class="tonal-btn sl" id="googleDisconnect">Disconnect</button>
+      </div>
+      <p class="hint">Connecting opens Google's own sign-in page in your browser. The sign-in is stored encrypted by Windows. Disconnect revokes it at Google and deletes it from this PC.</p>
+    </section>
+
+    <section class="group" aria-labelledby="g-agents">
+      <h2 id="g-agents" class="g-title">Coding agents</h2>
+      <p class="g-sub">Toasts, the working chip and (for Claude Code) permission prompts. Claude Code has its own setup above. For the others, copy the lines for your agent and paste them into its config file, then start a new session.</p>
+      <div class="agent-list" id="agentList"></div>
+      <p class="hint" id="agentNote" hidden></p>
+    </section>
+
+    <section class="group" aria-labelledby="g-dnsp">
+      <h2 id="g-dnsp" class="g-title">DNS providers</h2>
+      <p class="g-sub">Pick the DNS providers you want one click away (a tile in the quick actions steps through them). Installing asks Windows for administrator approval once and shows you the list first. After that, switching needs no approval.</p>
+      <div class="dnsp-grid" id="dnspPresets" role="group" aria-label="DNS providers"></div>
+      <div class="sub-title">Your own provider</div>
+      <div class="dnsp-custom" id="dnspCustom">
+        <div class="dnsp-c" data-i="0"><input class="select" type="text" maxlength="40" placeholder="Name (for example Work DNS)" data-f="name" aria-label="Custom provider 1 name" autocomplete="off" spellcheck="false"><div class="dnsp-row"><input class="select" type="text" maxlength="15" placeholder="Primary IPv4" data-f="v4a" aria-label="Custom provider 1 primary IPv4 address" autocomplete="off" spellcheck="false"><input class="select" type="text" maxlength="15" placeholder="Secondary IPv4" data-f="v4b" aria-label="Custom provider 1 secondary IPv4 address" autocomplete="off" spellcheck="false"></div><input class="select" type="text" maxlength="200" placeholder="Encrypted DNS address (optional, https://...)" data-f="doh" aria-label="Custom provider 1 encrypted DNS address" autocomplete="off" spellcheck="false"></div>
+        <div class="dnsp-c" data-i="1"><input class="select" type="text" maxlength="40" placeholder="Name of a second one (optional)" data-f="name" aria-label="Custom provider 2 name" autocomplete="off" spellcheck="false"><div class="dnsp-row"><input class="select" type="text" maxlength="15" placeholder="Primary IPv4" data-f="v4a" aria-label="Custom provider 2 primary IPv4 address" autocomplete="off" spellcheck="false"><input class="select" type="text" maxlength="15" placeholder="Secondary IPv4" data-f="v4b" aria-label="Custom provider 2 secondary IPv4 address" autocomplete="off" spellcheck="false"></div><input class="select" type="text" maxlength="200" placeholder="Encrypted DNS address (optional, https://...)" data-f="doh" aria-label="Custom provider 2 encrypted DNS address" autocomplete="off" spellcheck="false"></div>
+      </div>
+      <p class="hint" id="dnspState">Checking...</p>
+      <div class="dnsp-now" id="dnspNow"></div>
+      <div class="btn-row">
+        <button class="tonal-btn sl" id="dnspInstall">Install / update</button>
+        <button class="tonal-btn sl" id="dnspRemove">Remove</button>
+      </div>
+      <p class="hint">Only addresses you can see here can be switched to: the list is saved where only administrators can change it, so no other program can point your DNS somewhere else. Loopback and invalid addresses are refused.</p>
+    </section>
+
     <section class="group" aria-labelledby="g-dns">
       <h2 id="g-dns" class="g-title">NextDNS switch</h2>
       <label class="row"><span class="row-text"><b>NextDNS tile</b><small>A tile in the quick actions (hover the gear) that turns NextDNS on and off</small></span><span class="switch"><input type="checkbox" data-bind="dns.tile"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
@@ -174,6 +243,7 @@
 
     <section class="group" aria-labelledby="g-backup">
       <h2 id="g-backup" class="g-title">Backup and app</h2>
+      <label class="row"><span class="row-text"><b>Check for updates</b><small>Looks at GitHub Releases now and then. The installed version downloads quietly and installs when you quit (Windows asks for approval); the portable zip never updates itself</small></span><span class="switch"><input type="checkbox" data-bind="updates.check"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></span></label>
       <div class="btn-row">
         <button class="tonal-btn sl" id="exportBtn">Export settings</button>
         <button class="tonal-btn sl" id="importBtn">Import settings</button>

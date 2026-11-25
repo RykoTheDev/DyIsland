@@ -22,7 +22,7 @@
 :root[data-edge="left"] #chip2, :root[data-edge="right"] #chip2 { top: calc(100% + 48px); }   /* split chips stack: there is no room beside each other at the edge */
 
 /* the settings button and the quick-actions tray swap sides on the right edge */
-:root[data-edge="right"] .settings-fab { left: auto; right: calc(100% + 8px); transform-origin: 100% 50%; }
+:root[data-edge="right"] .settings-fab, :root[data-edge="right"] .tray-fab { left: auto; right: calc(100% + 8px); transform-origin: 100% 50%; }
 :root[data-edge="right"] .qtray { right: auto; left: -48px; transform-origin: 0 0; }
 
 /* Split chips on a side edge: id selectors in styles.css (left: 50% +- 4px) win over the rules above, so say it again with more weight */

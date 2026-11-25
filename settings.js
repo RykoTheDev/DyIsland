@@ -39,6 +39,7 @@
     for (const o of $$('[data-out]')) o.textContent = get(s, o.dataset.out) + (o.dataset.unit || '');
     for (const r of $$('[data-needs]')) r.classList.toggle('off', !get(s, r.dataset.needs));
     renderSwatches(s); renderThemes(s); renderTabs(s);
+    refreshDropdowns(); renderDnspSettings(s); renderAppList(s);
   }
 
   // ---------------------------------------------------------------- monitors (Position)
@@ -135,7 +136,7 @@
   });
 
   // ---------------------------------------------------------------- tabs: drag to reorder, arrows, on/off
-  const TAB_META = { home: ['Home', 'i-home'], music: ['Music', 'i-music'], weather: ['Weather', 'i-cloud'], timer: ['Timer', 'i-timer'], usage: ['Usage', 'i-chart'], clipboard: ['Clipboard', 'i-clip'], agents: ['Claude sessions', 'i-agents'] };
+  const TAB_META = { home: ['Home', 'i-home'], music: ['Music', 'i-music'], weather: ['Weather', 'i-cloud'], timer: ['Timer', 'i-timer'], usage: ['Usage', 'i-chart'], clipboard: ['Clipboard', 'i-clip'] };
   const list = $('#tabList');
   function commitOrder() {
     const order = $$('.tab-row', list).map((r) => r.dataset.id);
@@ -236,6 +237,67 @@
   searchBox.addEventListener('keydown', (e) => { if (e.key === 'Escape' && searchBox.value) { searchBox.value = ''; applyFilter(); e.stopPropagation(); } });
   document.addEventListener('keydown', (e) => { if ((e.ctrlKey && e.key.toLowerCase() === 'f') || (e.key === '/' && document.activeElement === document.body)) { e.preventDefault(); searchBox.focus(); searchBox.select(); } });
 
+  // ---------------------------------------------------------------- Settings tabs: the long list is split into five pages (a search looks through all of them)
+  const STABS = [
+    ['appearance', 'Look', ['g-look', 'g-display']],
+    ['layout', 'Layout', ['g-pos', 'g-size', 'g-home', 'g-tabs']],
+    ['alerts', 'Alerts', ['g-alerts']],
+    ['apps', 'Apps', ['g-claude', 'g-agents', 'g-google', 'g-dnsp', 'g-dns', 'g-clip', 'g-clip2']],
+    ['system', 'System', ['g-keys', 'g-region', 'g-check', 'g-backup']],
+  ];
+  let activeStab = 'appearance';
+  try { const v = localStorage.getItem('settings.tab'); if (STABS.some((t) => t[0] === v)) activeStab = v; } catch { /* private mode */ }
+  const stabOf = (g) => { const id = g.getAttribute('aria-labelledby') || ''; const hit = STABS.find((t) => t[2].includes(id)); return hit ? hit[0] : 'system'; };
+  function applyStab() {
+    const searching = !!$('#q').value.trim();
+    for (const g of $$('.group')) g.toggleAttribute('data-stab-hidden', !searching && stabOf(g) !== activeStab);
+    for (const b of $$('#stabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === activeStab && !searching));
+    const sc = $('#scroll'); if (sc) sc.scrollTop = 0;
+  }
+  { const bar = $('#stabs');
+    for (const [id, label] of STABS) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'stab sl'; b.dataset.tab = id; b.setAttribute('role', 'tab'); b.textContent = label;
+      b.addEventListener('click', () => { activeStab = id; try { localStorage.setItem('settings.tab', id); } catch { /* ignore */ } $('#q').value = ''; applyFilter(); applyStab(); });
+      bar.appendChild(b);
+    }
+    $('#q').addEventListener('input', applyStab);
+    applyStab();
+  }
+
+  // ---------------------------------------------------------------- dropdowns: the native pop-up list is replaced by one that matches the rest of the sheet
+  const ddInit = new WeakSet();
+  function closeDropdowns(except) { for (const d of $$('.dd.open')) if (d !== except) { d.classList.remove('open'); d.querySelector('.dd-btn').setAttribute('aria-expanded', 'false'); } }
+  function buildDropdown(sel) {
+    const dd = document.createElement('div'); dd.className = 'dd';
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'dd-btn sl'; btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-label', sel.getAttribute('aria-label') || 'Choose');
+    const text = document.createElement('span'); text.className = 'dd-text';
+    btn.append(text); btn.insertAdjacentHTML('beforeend', '<svg class="dd-chev" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>');
+    const list = document.createElement('ul'); list.className = 'dd-list'; list.setAttribute('role', 'listbox');
+    dd.append(btn, list); sel.after(dd); sel.classList.add('dd-native');
+    const fill = () => {
+      list.replaceChildren(...[...sel.options].map((o) => { const li = document.createElement('li'); li.setAttribute('role', 'option'); li.dataset.v = o.value; li.textContent = o.textContent; li.setAttribute('aria-selected', String(o.value === sel.value)); return li; }));
+      const cur = sel.options[sel.selectedIndex]; text.textContent = cur ? cur.textContent : '';
+    };
+    const open = () => { closeDropdowns(dd); fill(); dd.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
+      const r = dd.getBoundingClientRect(); dd.classList.toggle('up', window.innerHeight - r.bottom < 220 && r.top > 220);
+      const on = list.querySelector('[aria-selected="true"]'); if (on) on.scrollIntoView({ block: 'nearest' }); };
+    btn.addEventListener('click', () => (dd.classList.contains('open') ? closeDropdowns() : open()));
+    list.addEventListener('click', (e) => { const li = e.target.closest('li'); if (!li) return; sel.value = li.dataset.v; sel.dispatchEvent(new Event('change', { bubbles: true })); fill(); closeDropdowns(); btn.focus(); });
+    dd.addEventListener('keydown', (e) => {
+      const opts = [...list.children], i = opts.findIndex((o) => o.getAttribute('aria-selected') === 'true');
+      if (e.key === 'Escape' && dd.classList.contains('open')) { closeDropdowns(); btn.focus(); e.stopPropagation(); }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!dd.classList.contains('open')) { open(); return; } const n = Math.max(0, Math.min(opts.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1))); opts.forEach((o, k) => o.setAttribute('aria-selected', String(k === n))); opts[n].scrollIntoView({ block: 'nearest' }); }
+      else if ((e.key === 'Enter' || e.key === ' ') && dd.classList.contains('open') && i >= 0) { e.preventDefault(); sel.value = opts[i].dataset.v; sel.dispatchEvent(new Event('change', { bubbles: true })); fill(); closeDropdowns(); btn.focus(); }
+    });
+    new MutationObserver(fill).observe(sel, { childList: true });          // the monitor list is rebuilt when screens change
+    sel._ddFill = fill; fill();
+  }
+  function refreshDropdowns() {
+    for (const sel of $$('select.select')) { if (!ddInit.has(sel)) { ddInit.add(sel); buildDropdown(sel); } else sel._ddFill(); }
+  }
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest('.dd')) closeDropdowns(); });
+  refreshDropdowns();
+
   // ---------------------------------------------------------------- reset one section (tap twice)
   const SECTIONS = {
     'g-look': ['theme', 'motion'],
@@ -284,6 +346,89 @@
   $('#recheck').addEventListener('click', runCheck);
   api.onSettingsState((open) => { if (open) { runCheck(); loadMonitors(); } });
   runCheck(); loadMonitors();
+
+  // ---------------------------------------------------------------- Google
+  const GSTATE = { off: 'Not connected.', ok: 'Connected.', 'needs-id': 'Connected, but the client ID is missing.', error: 'Connected, but the last refresh failed' };
+  async function refreshGoogle(note) {
+    let r = null; try { r = await Promise.resolve(api.googleState && api.googleState()); } catch { /* ignore */ }
+    const st = r && r.status || 'off', el = $('#googleState'); if (!el) return;
+    el.textContent = note || ((GSTATE[st] || '') + (st === 'error' && r.error ? ': ' + r.error : '') + (st === 'ok' ? ' ' + r.mail.unread + ' unread.' : ''));
+    $('#googleConnect').disabled = st !== 'off' && st !== 'needs-id'; $('#googleDisconnect').disabled = st === 'off';
+  }
+  $('#googleConnect').addEventListener('click', async () => { $('#googleState').textContent = 'Finish the sign-in in your browser...'; let r = null; try { r = await api.googleConnect(); } catch { /* ignore */ } refreshGoogle(r && !r.ok ? (r.error || 'Could not connect.') : ''); });
+  $('#googleDisconnect').addEventListener('click', async () => { try { await api.googleDisconnect(); } catch { /* ignore */ } refreshGoogle(); });
+  api.onGoogle && api.onGoogle(() => refreshGoogle());
+  refreshGoogle();
+
+  // ---------------------------------------------------------------- Coding agents: copy the setup lines for each
+  Promise.resolve(api.agentsList && api.agentsList()).then((list) => {
+    const box = $('#agentList'); if (!box || !Array.isArray(list)) return;
+    box.replaceChildren(...list.map((a) => {
+      const row = document.createElement('div'); row.className = 'agent-row';
+      const t = document.createElement('span'); t.className = 'agent-t'; const b = document.createElement('b'); b.textContent = a.name; const sm = document.createElement('small'); sm.textContent = a.where + ' · ' + a.note; t.append(b, sm);
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'tonal-btn sl'; btn.textContent = 'Copy setup';
+      btn.addEventListener('click', async () => { let ok = false; try { ok = await api.agentsCopy(a.id); } catch { /* ignore */ } const n = $('#agentNote'); n.hidden = false; n.textContent = ok ? a.name + ' setup copied. ' + a.note + ' (' + a.where + ').' : 'Could not copy that.'; });
+      row.append(t, btn); return row;
+    }));
+  }).catch(() => {});
+
+  // ---------------------------------------------------------------- App shortcuts list
+  let appIcons = [];
+  async function renderAppList(s) {
+    const box = $('#appList'); if (!box || !s || !s.shortcuts) return;
+    try { const ic = await Promise.resolve(api.appIcons && api.appIcons()); if (Array.isArray(ic)) appIcons = ic; } catch { /* no icons */ }
+    box.replaceChildren(...s.shortcuts.apps.map((a, i) => {
+      const row = document.createElement('div'); row.className = 'app-row';
+      const im = document.createElement('img'); im.alt = ''; if (appIcons[i]) im.src = appIcons[i];
+      const t = document.createElement('span'); t.textContent = a.name; t.title = a.path;
+      const x = document.createElement('button'); x.type = 'button'; x.className = 'app-x sl'; x.setAttribute('aria-label', 'Remove ' + a.name); x.innerHTML = '<svg width="16" height="16"><use href="#i-close"/></svg>';
+      x.addEventListener('click', () => send({ shortcuts: { apps: s.shortcuts.apps.filter((_, k) => k !== i) } }));
+      row.append(im, t, x); return row;
+    }));
+    $('#appAdd').disabled = s.shortcuts.apps.length >= 8;
+  }
+  $('#appAdd').addEventListener('click', async () => { try { await api.pickApp(); } catch { /* ignore */ } });
+
+  // ---------------------------------------------------------------- DNS providers (Cloudflare, Google, AdGuard, your own)
+  let dnspPresets = [], dnspBuilt = false;
+  function renderDnspSettings(s) {
+    const box = $('#dnspPresets'); if (!box || !s || !s.dnsp) return;
+    if (!dnspBuilt && dnspPresets.length) {
+      dnspBuilt = true;
+      box.replaceChildren(...dnspPresets.map((p) => {
+        const l = document.createElement('label'); l.className = 'dnsp-p';
+        const c = document.createElement('input'); c.type = 'checkbox'; c.dataset.preset = p.id;
+        const t = document.createElement('span'); const b = document.createElement('b'); b.textContent = p.name; const sm = document.createElement('small'); sm.textContent = p.note || '';
+        t.append(b, sm); l.append(c, t); return l;
+      }));
+    }
+    for (const c of $$('#dnspPresets input[data-preset]')) c.checked = s.dnsp.presets.includes(c.dataset.preset);
+    for (const row of $$('#dnspCustom .dnsp-c')) { const v = s.dnsp.custom[Number(row.dataset.i)] || {}; for (const inp of $$('input', row)) if (document.activeElement !== inp) inp.value = v[inp.dataset.f] || ''; }
+  }
+  function sendDnsp() {
+    const presets = $$('#dnspPresets input[data-preset]').filter((c) => c.checked).map((c) => c.dataset.preset);
+    const custom = $$('#dnspCustom .dnsp-c').map((row) => Object.fromEntries($$('input', row).map((i) => [i.dataset.f, i.value.trim()]))).filter((c) => c.name || c.v4a);
+    send({ dnsp: { presets, custom } });
+  }
+  document.addEventListener('change', (e) => { if (e.target.closest('#dnspPresets, #dnspCustom')) sendDnsp(); });
+  const DNSP_TEXT = { notinstalled: 'Not installed yet. Pick providers above, then press Install.', auto: 'Installed. DNS is Automatic (your ISP / router).', profile: 'Installed. Using', custom: 'Installed, but your DNS was changed by hand.', mixed: 'Installed. Your connections use different DNS right now.', absent: 'Installed, but the saved connection is not active right now.', unsupported: 'Not available on this system.' };
+  async function refreshDnsp() {
+    let r = null; try { r = await Promise.resolve(api.dnspStatus && api.dnspStatus()); } catch { /* ignore */ }
+    const st = r && r.state || 'notinstalled', box = $('#dnspNow'); if (!box) return;
+    const cur = r && r.profiles ? r.profiles.find((p) => p.id === r.id) : null;
+    $('#dnspState').textContent = (DNSP_TEXT[st] || '') + (st === 'profile' && cur ? ' ' + cur.name + '.' : '');
+    box.replaceChildren(...(r && r.profiles ? [{ id: 'auto', name: 'Automatic' }, ...r.profiles] : []).map((p) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'dnsp-use sl'; b.textContent = p.name;
+      b.setAttribute('aria-pressed', String((p.id === 'auto' && st === 'auto') || (r.id === p.id && st === 'profile')));
+      b.addEventListener('click', async () => { box.querySelectorAll('button').forEach((x) => { x.disabled = true; }); try { await api.dnspUse(p.id); } catch { /* ignore */ } refreshDnsp(); });
+      return b;
+    }));
+  }
+  $('#dnspInstall').addEventListener('click', async () => { sendDnsp(); await new Promise((r) => setTimeout(r, 120)); $('#dnspState').textContent = 'Waiting for Windows approval and the setup window...'; try { await api.dnspSetup(); } catch { /* ignore */ } setTimeout(refreshDnsp, 1500); });
+  $('#dnspRemove').addEventListener('click', async () => { try { await api.dnspRemove(); } catch { /* ignore */ } setTimeout(refreshDnsp, 1500); });
+  Promise.resolve(api.dnspPresets && api.dnspPresets()).then((l) => { if (Array.isArray(l)) { dnspPresets = l; renderDnspSettings(S); } }).catch(() => {});
+  refreshDnsp();
+  api.onSettingsState((open) => { if (open) refreshDnsp(); });
 
   // ---------------------------------------------------------------- NextDNS switch
   const DNS_TEXT = { on: 'Set up. NextDNS is ON.', off: 'Set up. NextDNS is OFF (automatic DNS from your ISP).', notinstalled: 'Not set up yet. Click Set up (Windows asks for approval once).', custom: 'Set up, but DNS was changed by hand. The tile restores NextDNS.', mixed: 'Set up. Some connections are on, some off.', unencrypted: 'Set up. The NextDNS servers are in place but their encrypted-DNS setting is missing: click the tile to restore it.', absent: 'Set up, but the saved connection is not active right now.', unsupported: 'Only available on Windows.' };

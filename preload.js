@@ -15,6 +15,22 @@ contextBridge.exposeInMainWorld('islandAPI', {
   toggleSettings: () => ipcRenderer.send('settings:toggle'),
   closeSettings: () => ipcRenderer.send('settings:close'),
   onSettingsState: (cb) => on('settings:state', (open) => cb(!!open)),
+  reportSize: (sz) => ipcRenderer.send('island:size', { w: Number(sz && sz.w) || 0, h: Number(sz && sz.h) || 0 }),   // the open size of the page on screen (the settings card is placed from it)
+  onEvents: (cb) => on('events:list', cb),                           // { list, status } from the calendar link
+  googleState: () => ipcRenderer.invoke('google:state'),
+  googleConnect: () => ipcRenderer.invoke('google:connect'),
+  googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
+  googleOpen: (what) => ipcRenderer.send('google:open', String(what || '')),
+  onGoogle: (cb) => on('google:data', cb),                                  // { status, mail: { unread, latest }, error }
+  eventsGet: () => ipcRenderer.invoke('events:get'),
+  openEvent: (id) => ipcRenderer.send('events:open', String(id || '')),
+  onVolume: (cb) => on('system:volume', cb),                          // { pct, mute, init } from the system helper
+  setVolume: (pct) => ipcRenderer.send('volume:set', Number(pct) || 0),
+  setMute: (m) => ipcRenderer.send('volume:mute', !!m),
+  appIcons: () => ipcRenderer.invoke('apps:icons'),                          // data URLs of the icons of the App shortcuts, in order
+  openApp: (i) => ipcRenderer.send('apps:open', Number(i)),                  // opens the i-th shortcut from the saved list (the page never sends a path)
+  pickApp: () => ipcRenderer.invoke('apps:pick'),                            // the file picker; the chosen program is added to the list
+  quick: (k) => ipcRenderer.send('quick:run', String(k || '')),                     // a fixed list of actions (screenshot, lock, night light, calculator): main decides what each one does
   // environment
   onNear: (cb) => on('env:near', (v) => cb(!!v)),                   // pointer is at the top centre (auto-hide)
   mascotWatch: (v) => ipcRenderer.send('mascot:watch', !!v),        // ask for pointer direction updates
@@ -26,7 +42,9 @@ contextBridge.exposeInMainWorld('islandAPI', {
   // clipboard history
   clipboardList: () => ipcRenderer.invoke('clipboard:list'),
   onClipboard: (cb) => on('clipboard:list', cb),
-  clipboardCopy: (i) => ipcRenderer.invoke('clipboard:copy', i),
+  clipboardCopy: (id) => ipcRenderer.invoke('clipboard:copy', id),
+  clipboardPin: (id) => ipcRenderer.invoke('clipboard:pin', id),
+  clipboardPaste: (id) => ipcRenderer.invoke('clipboard:paste', id),
   clipboardClear: () => ipcRenderer.invoke('clipboard:clear'),
   onPrivacy: (cb) => on('privacy:state', cb),                       // { camera, mic } in use right now
   // where the island lives (edge, monitor) and what it knows about its own window
@@ -44,6 +62,12 @@ contextBridge.exposeInMainWorld('islandAPI', {
   dnsStatus: () => ipcRenderer.invoke('dns:status'),
   dnsToggle: () => ipcRenderer.invoke('dns:toggle'),
   dnsSetup: () => ipcRenderer.invoke('dns:setup'),
+  // DNS providers (Cloudflare, Google, AdGuard, your own...): one switch between them, installed once with Windows approval
+  dnspPresets: () => ipcRenderer.invoke('dnsp:presets'),
+  dnspStatus: () => ipcRenderer.invoke('dnsp:status'),
+  dnspUse: (which) => ipcRenderer.invoke('dnsp:use', typeof which === 'string' ? which : 'auto'),
+  dnspSetup: () => ipcRenderer.invoke('dnsp:setup'),
+  dnspRemove: () => ipcRenderer.invoke('dnsp:remove'),
   dnsRemove: () => ipcRenderer.invoke('dns:remove'),
   // settings tools
   settingsDefaults: () => ipcRenderer.invoke('settings:defaults'),
@@ -58,11 +82,15 @@ contextBridge.exposeInMainWorld('islandAPI', {
   onApprovals: (cb) => on('approvals:state', cb),
   approvals: () => ipcRenderer.invoke('approve:list'),
   approve: (id, behavior) => ipcRenderer.send('approve:answer', id, behavior),
+  agentsList: () => ipcRenderer.invoke('agents:list'),
+  agentsCopy: (id) => ipcRenderer.invoke('agents:copy', String(id || '')),
   copyHooks: () => ipcRenderer.invoke('hooks:copy'),
   // media, weather, usage, Claude
   media: (cmd, arg) => ipcRenderer.send('media:cmd', cmd, arg),
   onMedia: (cb) => on('media:update', cb),
-  weather: (city) => ipcRenderer.invoke('weather:get', city),
+  weather: (where) => ipcRenderer.invoke('weather:get', where),             // a place name, or { name, lat, lon }
+  weatherSearch: (text) => ipcRenderer.invoke('weather:search', typeof text === 'string' ? text : ''),
+  weatherLocate: () => ipcRenderer.invoke('weather:locate'),                // asks the Windows location service, only when you press the button
   usage: () => ipcRenderer.invoke('usage:get'),
   limits: () => ipcRenderer.invoke('limits:get'),
   onNotice: (cb) => on('notice:show', cb),

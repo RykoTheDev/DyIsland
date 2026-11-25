@@ -55,7 +55,9 @@ jobs:
           name: DyIsland-windows
           path: |
             dist/DyIsland-Setup-*.exe
+            dist/DyIsland-Setup-*.exe.blockmap
             dist/DyIsland-*-win-x64.zip
+            dist/latest.yml
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -67,5 +69,7 @@ jobs:
           generate_release_notes: true
           files: |
             dist/DyIsland-Setup-*.exe
+            dist/DyIsland-Setup-*.exe.blockmap
             dist/DyIsland-*-win-x64.zip
+            dist/latest.yml
             dist/SHA256SUMS.txt

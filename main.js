@@ -7,6 +7,11 @@ const path = require('path');
 app.setName('DyIsland');
 app.setAppUserModelId('com.dyisland.app');
 
+// Smoke-test mode (test/main-smoke.js): its own data folder (so its own single-instance lock), no windows shown, no autostart entry, no global
+// shortcuts, and any uncaught error ends the process with a failure. Never set by the app itself.
+const SMOKE = process.env.DYISLAND_SMOKE === '1' && !!process.env.DYISLAND_USERDATA;
+if (SMOKE) { app.setPath('userData', process.env.DYISLAND_USERDATA); process.on('uncaughtException', (e) => { console.error('UNCAUGHT ' + (e && e.stack || e)); process.exit(3); }); }
+
 const { getUsage } = require('./usage');
 const { getLimits } = require('./limits');
 const notify = require('./notify');
@@ -14,6 +19,7 @@ const { createSessions } = require('./sessions');
 const { createApprovals } = require('./approvals');
 const privacy = require('./privacy');
 const { createStore, sanitize, DEFAULTS } = require('./settingsStore');
+const updaterModule = require('./main/updater');
 const { checkHooks } = require('./setupcheck');
 const { computeVisibility } = require('./visibility');
 const placement = require('./placement');
@@ -32,7 +38,7 @@ const SET_MARGIN = 16;
 const SET_GAP = 8;
 
 // One island window per chosen monitor. `win` is the lead island (the primary monitor's if it has one): legacy single-window code uses it.
-let win, settings, tray, media, mediaRestarts = 0, settingsHiddenAt = 0, store;
+let win, settings, tray, media, mediaRestarts = 0, settingsHiddenAt = 0, store, updater = null;
 const islands = [];                                  // { win, display, lead, near, nearUntil, lastGaze }
 
 // Only one DyIsland at a time (matters with autostart: launching it by hand must not stack a second island)
@@ -52,6 +58,7 @@ app.on('web-contents-created', (_e, contents) => {
 });
 
 // ---- helpers shared by everything below
+const run = (file, args, timeout = 4000) => new Promise((resolve) => { try { execFile(file, args, { windowsHide: true, timeout }, (err, stdout) => resolve({ ok: !err, out: String(stdout || '') })); } catch { resolve({ ok: false, out: '' }); } });
 const alive = (w) => w && !w.isDestroyed();
 const send = (w, channel, ...args) => { if (alive(w)) w.webContents.send(channel, ...args); };
 const broadcast = (channel, ...args) => { for (const isl of islands) send(isl.win, channel, ...args); };     // to every island window
@@ -68,6 +75,32 @@ function logEvent(line) {
     const lines = (prev + `${new Date().toISOString()} ${line}\n`).split('\n').filter(Boolean).slice(-100);
     fs.writeFileSync(f, lines.join('\n') + '\n');
   } catch { /* logging must never affect the island */ }
+}
+
+// One effective "do not disturb": your own switch, or (Settings > Alerts > Quiet during calls) the camera / microphone being in use.
+// Derived, never written back, so the end of a call cannot clear a Do not disturb you turned on yourself.
+const dndNow = () => { const c = store.get(); return !!c.quiet.dnd || (!!c.meetings.dnd && !!(privState.camera || privState.mic)); };
+
+// ---- system helper (system.ps1): volume, keyboard-focus hand-back, Bluetooth connect toasts. One process for all three.
+const sys = require('./main/system').create({
+  unpacked, logEvent,
+  bluetooth: true,
+  onNotification: (n) => mirrorNotification(n),
+  onVolume: (v) => broadcast('system:volume', v),
+  onBluetooth: (e) => { if (e.state !== 'connected' || !store || !store.get().devices.toasts || dndNow()) return; logEvent('bluetooth connected: ' + e.name); broadcast('notice:show', { kind: 'done', tone: 'info', duration: 4, title: e.name, sub: 'Bluetooth connected' }); },
+});
+
+// A Windows notification from another app, shown on the island (Settings > Alerts, opt-in). Only app + title + text, kept for the length of the toast; never logged.
+function mirrorNotification(n) {
+  if (!store) return;
+  const c = store.get().notifications;
+  if (!c.mirror || dndNow()) return;
+  const only = c.apps.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (only.length && !only.some((x) => n.app.toLowerCase().includes(x))) return;
+  if (/^dyisland$/i.test(n.app)) return;
+  if (!n.title && !n.body) return;
+  logEvent('mirrored a Windows notification');
+  broadcast('notice:show', { kind: 'done', tone: 'info', duration: 5, title: (n.app && n.title ? n.app + ': ' + n.title : n.title || n.app), sub: n.body || n.app });
 }
 
 // ---- windows
@@ -101,9 +134,12 @@ function createIsland(display) {
   });
   w.webContents.on('did-finish-load', () => {
     lastWorking = ''; pushWorking();
-    send(w, 'clipboard:list', clipItems); send(w, 'approvals:state', approvals.list()); send(w, 'privacy:state', privState);
+    send(w, 'clipboard:list', clip.items()); send(w, 'approvals:state', approvals.list()); send(w, 'privacy:state', privState);
     send(w, 'window:info', infoOf(isl)); send(w, 'awake:state', blockerId !== null);
-    if (lastTimerState && !(lastTimerState.running && Number(lastTimerState.endAt) <= Date.now())) send(w, 'timer:state', lastTimerState);   // (a timer that already ran out is not replayed)
+    { const mr = mediaReplay(); if (mr) send(w, 'media:update', mr); }
+    { const lv = sys.last(); if (lv) send(w, 'system:volume', { ...lv, init: true }); }
+    eventsMod.refresh();                                                                        // (a new window gets the list; cheap when no link is set)
+    if (lastTimerState) send(w, 'timer:state', lastTimerState);                   // (the page settles a timer that already ran out quietly, see timers.js)
     applyWindowVisibility();
   });
   w.webContents.on('render-process-gone', (_e, d) => {      // the page died: hand the mouse back, drop open requests, load it again
@@ -160,7 +196,8 @@ function settingsBounds() {
   const lead = (settingsAnchor && islands.includes(settingsAnchor) ? settingsAnchor : null) || islands.find((i) => i.lead) || islands[0];
   const d = lead ? lead.display : screen.getPrimaryDisplay();
   const cfg = store.get();
-  return placement.settingsBounds(d, cfg.placement.edge, cfg.size.open.w, cfg.size.open.h, { width: SET_W, margin: SET_MARGIN, gap: SET_GAP });
+  const live = (lead && lead.liveOpen) || { w: 0, h: 0 };
+  return placement.settingsBounds(d, cfg.placement.edge, Math.max(cfg.size.open.w, live.w), Math.max(cfg.size.open.h, live.h), { width: SET_W, margin: SET_MARGIN, gap: SET_GAP });
 }
 
 let dialogOpen = false;
@@ -206,6 +243,8 @@ function toggleSettings(anchor) {
   if (Date.now() - settingsHiddenAt < 250) return;            // the same click that just blurred (and hid) it
   showSettings(anchor);
 }
+// The island tells us how big its open size is for the page on screen; the settings card is placed from the larger of that and the saved size
+ipcMain.on('island:size', (e, sz) => { const isl = islandOfSender(e.sender); if (!isl || !sz) return; const w = Math.round(Number(sz.w)), h = Math.round(Number(sz.h)); if (w >= 300 && w <= 700 && h >= 150 && h <= 400) { isl.liveOpen = { w, h }; if (alive(settings) && settings.isVisible()) settings.setBounds(settingsBounds()); } });
 ipcMain.on('settings:toggle', (e) => toggleSettings(islandOfSender(e.sender)));
 ipcMain.on('settings:close', hideSettings);
 
@@ -225,7 +264,9 @@ async function withDialog(fn) {
 ipcMain.handle('settings:export', () => withDialog(async () => {
   const r = await dialog.showSaveDialog(settings, { title: 'Export DyIsland settings', defaultPath: path.join(app.getPath('documents'), 'dyisland-settings.json'), filters: [{ name: 'JSON', extensions: ['json'] }] });
   if (r.canceled || !r.filePath) return { ok: false, canceled: true };
-  fs.writeFileSync(r.filePath, JSON.stringify(store.get(), null, 2));
+  const out = JSON.parse(JSON.stringify(store.get())); if (out.events) out.events.url = '';
+  if (out.google) { out.google.clientId = ''; out.google.clientSecret = ''; }          // the calendar link is a secret address: it never goes into a file you might share
+  fs.writeFileSync(r.filePath, JSON.stringify(out, null, 2));
   return { ok: true, file: path.basename(r.filePath) };
 }));
 ipcMain.handle('settings:import', () => withDialog(async () => {
@@ -235,6 +276,9 @@ ipcMain.handle('settings:import', () => withDialog(async () => {
   if (fs.statSync(file).size > 200 * 1024) return { ok: false, error: 'That file is too big to be a settings file' };
   let raw; try { raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); } catch { return { ok: false, error: 'That file is not valid JSON' }; }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !Object.keys(DEFAULTS).some((k) => Object.prototype.hasOwnProperty.call(raw, k))) return { ok: false, error: 'That file does not look like DyIsland settings' };   // e.g. the wrong .json picked
+  // An export leaves the calendar link and the Google client out (empty): importing it must not erase the ones you have
+  if (raw.events && typeof raw.events === 'object' && !raw.events.url) delete raw.events.url;
+  if (raw.google && typeof raw.google === 'object') { if (!raw.google.clientId) delete raw.google.clientId; if (!raw.google.clientSecret) delete raw.google.clientSecret; }
   store.set(raw);                                            // merged onto what you have, anything invalid falls back to its default
   return { ok: true, file: path.basename(file) };
 }));
@@ -296,61 +340,15 @@ ipcMain.handle('claude:focus', async (_e, session) => {
   return r;
 });
 
-// ---- DNS switch (NextDNS on/off). The privileged part is two scheduled tasks created by dns/dns-setup.ps1; here we only READ the state
-// (registry, no rights needed) and START a task. Nothing from the page is ever put into a command line.
-const dnsDir = () => path.join(process.env.ProgramData || 'C:\\ProgramData', 'DyIsland', 'dns');
-const IF_V4 = 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\';
-const IF_V6 = 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters\\Interfaces\\';
-const run = (file, args, timeout = 4000) => new Promise((resolve) => { try { execFile(file, args, { windowsHide: true, timeout }, (err, stdout) => resolve({ ok: !err, out: String(stdout || '') })); } catch { resolve({ ok: false, out: '' }); } });
-async function dnsStatus() {
-  if (process.platform !== 'win32') return { state: 'unsupported' };
-  let raw = null; try { raw = JSON.parse(fs.readFileSync(path.join(dnsDir(), 'config.json'), 'utf8').replace(/^﻿/, '')); } catch { /* not set up */ }   // (PowerShell 5.1 can write a byte-order mark: strip it)
-  const cfg = dnsSwitch.validateConfig(raw);
-  if (!cfg) return { state: 'notinstalled' };
-  const current = {};
-  for (const a of cfg.adapters) {
-    if (!(await run('reg.exe', ['query', IF_V4 + a.guid])).ok) continue;            // that adapter is not here right now
-    const v4 = dnsSwitch.parseNameServer((await run('reg.exe', ['query', IF_V4 + a.guid, '/v', 'NameServer'])).out);
-    const v6 = dnsSwitch.parseNameServer((await run('reg.exe', ['query', IF_V6 + a.guid, '/v', 'NameServer'])).out);
-    let dohOk;                                                                      // is the encrypted-DNS (DoH) setting Windows keeps for these servers still there?
-    if (a.doh && a.doh.length) {
-      dohOk = true;
-      for (const d of a.doh) {
-        const r = await run('reg.exe', ['query', 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\' + a.guid + '\\DohInterfaceSettings\\Doh\\' + d.ip, '/v', 'DohTemplate']);
-        if (!r.ok || !r.out.toLowerCase().includes(d.template.toLowerCase())) { dohOk = false; break; }
-      }
-    }
-    current[a.guid] = { v4, v6, dohOk };
-  }
-  return { state: dnsSwitch.decideState(cfg, current) };
-}
-let dnsBusy = false;
-ipcMain.handle('dns:status', () => dnsStatus());
-ipcMain.handle('dns:toggle', async () => {
-  if (dnsBusy) return { state: 'busy' };
-  dnsBusy = true;
-  try {
-    const st = await dnsStatus();
-    if (st.state === 'notinstalled' || st.state === 'unsupported' || st.state === 'absent') return st;
-    const target = st.state === 'on' ? 'off' : 'on';                                 // anything but "on" (off, mixed, custom, unencrypted) goes to on
-    const r = await run('schtasks.exe', ['/run', '/tn', target === 'on' ? dnsSwitch.TASK_ON : dnsSwitch.TASK_OFF]);
-    logEvent('dns toggle -> ' + target + (r.ok ? '' : ' (could not start the task)'));
-    if (!r.ok) return { state: 'failed' };
-    for (let i = 0; i < 10; i++) { await new Promise((x) => setTimeout(x, 600)); const now = await dnsStatus(); if (now.state === target) return now; }
-    return await dnsStatus();
-  } finally { dnsBusy = false; }
-});
-// Setup / remove run the PowerShell scripts elevated: Windows shows its own approval prompt, and only the person at the screen can accept it
-async function runElevated(scriptName) {
-  const scriptB64 = Buffer.from(unpacked('dns', scriptName), 'utf8').toString('base64');         // the path travels as base64: nothing in it can be read as code, whatever characters it has
-  const cmd = "$p = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + scriptB64 + "')); " +
-    "try { Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe') -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',('\"' + $p + '\"') -ErrorAction Stop; exit 0 } catch { exit 1 }";
-  const psExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const r = await run(psExe, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(cmd, 'utf16le').toString('base64')], 120000);
-  return { ok: r.ok };
-}
-ipcMain.handle('dns:setup', () => runElevated('dns-setup.ps1'));
-ipcMain.handle('dns:remove', () => runElevated('dns-remove.ps1'));
+const eventsMod = require('./main/events').create({ ipcMain, store: { get: () => store.get() }, broadcast, logEvent });
+const googleMod = require('./main/google').create({ app, safeStorage: require('electron').safeStorage, shell: require('electron').shell, net, store: { get: () => store.get() }, broadcast, logEvent, setExtraEvents: (l) => eventsMod.setExtra(l) });
+ipcMain.handle('google:state', () => googleMod.state());
+ipcMain.handle('google:connect', () => googleMod.connect());
+ipcMain.handle('google:disconnect', () => googleMod.disconnect());
+ipcMain.on('google:open', (_e, what) => { const u = { mail: 'https://mail.google.com/', calendar: 'https://calendar.google.com/', tasks: 'https://tasks.google.com/' }[what]; if (u) require('electron').shell.openExternal(u); });
+const dns = require('./main/dns').create({ ipcMain, run, unpacked, logEvent });
+const dnsStatus = dns.status;
+require('./main/dnsp').create({ ipcMain, run, unpacked, logEvent, store: { get: () => store.get() } });
 
 // ---- Setup check: is everything in place? (shown in Settings)
 let lastClaudeEventAt = 0;
@@ -369,7 +367,7 @@ async function runSetupCheck() {
   const keyRow = (id, label, k) => ({ id, label, state: !k.accelerator ? 'off' : k.ok ? 'ok' : 'bad', detail: !k.accelerator ? 'Off' : k.ok ? k.accelerator.replace(/\+/g, ' + ') : 'Another app is using ' + k.accelerator.replace(/\+/g, ' + ') });
   rows.push(keyRow('hotkey', 'Island shortcut', hk), keyRow('settingsKey', 'Settings shortcut', hs));
   rows.push({ id: 'privacy', label: 'Camera and microphone dot', state: !cfg.privacy.dot ? 'off' : privWatch ? 'ok' : 'warn', detail: !cfg.privacy.dot ? 'Off' : privWatch ? 'Watching ' + (privState.camera || privState.mic ? '(in use right now)' : '(nothing in use)') : 'Not running' });
-  rows.push({ id: 'fullscreen', label: 'Full-screen detection', state: !cfg.hideInFullscreen ? 'off' : (fsProc && !fsProc.killed ? 'ok' : 'warn'), detail: !cfg.hideInFullscreen ? 'Off' : (fsProc && !fsProc.killed ? 'Watching the primary monitor' : 'Helper not running: the island simply stays visible') });
+  rows.push({ id: 'fullscreen', label: 'Full-screen detection', state: !cfg.hideInFullscreen ? 'off' : (fsProc && !fsProc.killed ? 'ok' : 'warn'), detail: !cfg.hideInFullscreen ? 'Off' : (fsProc && !fsProc.killed ? 'Watching every monitor' : 'Helper not running: the island simply stays visible') });
   { const d = await dnsStatus(); const word = { on: 'NextDNS is on', off: 'NextDNS is off (automatic DNS)', mixed: 'Some connections on, some off', custom: 'DNS was changed by hand', absent: 'The saved connection is not active right now' }[d.state];
     rows.push({ id: 'dns', label: 'NextDNS switch', state: d.state === 'notinstalled' || d.state === 'unsupported' ? 'off' : (d.state === 'on' || d.state === 'off') ? 'ok' : 'warn', detail: word ? 'Set up. ' + word : 'Not set up (optional): Settings > DNS' }); }
   rows.push({ id: 'autostart', label: 'Start with Windows', state: getAutostart() ? 'ok' : 'off', detail: getAutostart() ? 'On' : 'Off (turn it on from the tray menu)' });
@@ -383,6 +381,8 @@ function onSettingsChanged(s) {
   send(settings, 'settings:changed', s);
   if (alive(settings)) settings.setBounds(settingsBounds());   // the open height moved
   syncHotkey(); syncClipboard(); syncPolling(); syncFullscreenWatch(); applyWindowVisibility(); syncApprovals(); syncPrivacy();
+  sys.setFlags({ bluetooth: s.devices.toasts, notifications: s.notifications.mirror });
+  eventsMod.sync(); googleMod.sync();
 }
 
 // ---- Start with Windows
@@ -402,11 +402,16 @@ function initAutostart() {
 }
 
 // ---- Full-screen apps: hide the whole window over them. FAIL OPEN: if the helper is missing, dead or unsure, the island stays visible.
-let fsProc = null, fsActive = false, fsRestarts = 0;
+let fsProc = null, fsActive = false, fsRestarts = 0, fsPoint = null;       // fsPoint: the top-left of the monitor the full-screen window is on, in screen pixels (null = unknown: the main monitor)
 let pausedUntil = 0, pauseTimer = null;                        // "Pause the island for an hour" (runtime only, never saved)
 const isPaused = () => Date.now() < pausedUntil;
 // Full-screen is detected on the PRIMARY monitor only, so it hides only islands that live there.
-const windowShouldShow = (isl) => computeVisibility({ hideInFullscreen: store.get().hideInFullscreen, fullscreen: fsActive && (!isl || isl.display.id === screen.getPrimaryDisplay().id), paused: isPaused() }).window;
+// Is the full-screen window on this display? The helper reports pixels, displays are in DIPs: convert before comparing.
+function fsOnDisplay(d) {
+  if (!fsPoint) return d.id === screen.getPrimaryDisplay().id;
+  try { const p = screen.screenToDipPoint(fsPoint); return Math.abs(p.x - d.bounds.x) <= 2 && Math.abs(p.y - d.bounds.y) <= 2; } catch { return d.id === screen.getPrimaryDisplay().id; }
+}
+const windowShouldShow = (isl) => computeVisibility({ hideInFullscreen: store.get().hideInFullscreen, fullscreen: fsActive && (!isl || fsOnDisplay(isl.display)), paused: isPaused() }).window && !SMOKE;
 const anyIslandShown = () => islands.some((i) => windowShouldShow(i));
 function pauseIsland(minutes) {
   const m = Math.max(1, Math.min(480, Math.round(Number(minutes)) || 60));
@@ -434,9 +439,10 @@ function applyWindowVisibility() {
   const home = (settingsAnchor && islands.includes(settingsAnchor) ? settingsAnchor : null) || islands.find((i) => i.lead) || islands[0];
   if (!home || !windowShouldShow(home)) hideSettings();                      // the card follows the island it belongs to
 }
-function setFullscreen(v) {
-  if (fsActive === v) return;
-  fsActive = v;
+function setFullscreen(v, pt) {
+  const key = (p) => (p ? p.x + ',' + p.y : '');
+  if (fsActive === v && key(fsPoint) === key(v ? pt : null)) return;
+  fsActive = v; fsPoint = v && pt ? pt : null;
   logEvent('fullscreen ' + (v ? 'ON: island hidden' : 'off: island shown'));
   applyWindowVisibility(); syncApprovals();
 }
@@ -465,7 +471,10 @@ function startFullscreenWatch() {
     let i;
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-      if (line === '1') setFullscreen(true); else if (line === '0') setFullscreen(false);
+      let fm;
+      if (line === '0') setFullscreen(false);
+      else if (line === '1') setFullscreen(true);
+      else if ((fm = /^1 (-?\d+) (-?\d+)$/.exec(line))) setFullscreen(true, { x: Number(fm[1]), y: Number(fm[2]) });
     }
   });
   p.on('close', () => {                                    // 'close' fires after the last stdout data, unlike 'exit'
@@ -551,52 +560,8 @@ ipcMain.handle('awake:get', () => blockerId !== null);
 let lastTimerState = null;                                      // remembered so a new or rebuilt island window picks the timer up
 ipcMain.on('timer:sync', (e, st) => { lastTimerState = st; for (const isl of islands) if (alive(isl.win) && isl.win.webContents !== e.sender) send(isl.win, 'timer:state', st); });
 
-// ---- Clipboard history (opt-in). Text only, in memory only, never written to disk, 2000 characters per item at most.
-let clipTimer = null, clipItems = [], lastClip = '';
-// A short signature instead of keeping a copy of the whole clipboard around between polls
-const sigOf = (t) => { t = typeof t === 'string' ? t : ''; return t.length + ':' + t.slice(0, 256) + t.slice(-64); };
-// In Electron 45 every clipboard call returns a Promise: it has to be awaited (a Promise is truthy and is not a string)
-async function clipIsSensitive() {
-  // Windows password managers mark what they copy so clipboard managers skip it. Best effort: honour the marker if Electron can see it.
-  try {
-    for (const fmt of ['ExcludeClipboardContentFromMonitorProcessing', 'Clipboard Viewer Ignore']) if ((await clipboard.has(fmt)) === true) return true;
-    return false;
-  } catch { return false; }
-}
-let clipBusy = false;
-async function pollClipboard() {
-  if (clipBusy) return; clipBusy = true;
-  try {
-    let t = '';
-    try { t = await clipboard.readText(); } catch { return; }
-    if (typeof t !== 'string' || !t) return;                 // never let an odd clipboard value crash the main process
-    const sig = sigOf(t);
-    if (sig === lastClip) return;
-    lastClip = sig;
-    if (await clipIsSensitive()) return;
-    if (!clipTimer) return;                                  // switched off while we were reading
-    const text = t.slice(0, 2000);
-    clipItems = [text, ...clipItems.filter((x) => x !== text)].slice(0, store.get().clipboard.max);
-    broadcast('clipboard:list', clipItems);
-  } catch { /* never let a clipboard hiccup become an uncaught exception */ } finally { clipBusy = false; }
-}
-function syncClipboard() {
-  const on = store.get().clipboard.enabled;
-  if (on && !clipTimer) {
-    lastClip = '';
-    clipTimer = setInterval(pollClipboard, 1000);
-    Promise.resolve(clipboard.readText()).then((t) => { if (!lastClip) lastClip = sigOf(t); }).catch(() => {});   // what is already there is not recorded
-  }
-  else if (!on && clipTimer) { clearInterval(clipTimer); clipTimer = null; clipItems = []; broadcast('clipboard:list', []); }
-  else if (on) { clipItems = clipItems.slice(0, store.get().clipboard.max); broadcast('clipboard:list', clipItems); }
-}
-ipcMain.handle('clipboard:list', () => clipItems);
-ipcMain.handle('clipboard:copy', async (_e, i) => {
-  const t = clipItems[Number(i)];
-  if (typeof t !== 'string') return false;
-  try { await clipboard.writeText(t); lastClip = sigOf(t); clipItems = [t, ...clipItems.filter((x) => x !== t)]; broadcast('clipboard:list', clipItems); return true; } catch { return false; }
-});
-ipcMain.handle('clipboard:clear', () => { clipItems = []; broadcast('clipboard:list', clipItems); return true; });
+const clip = require('./main/clipboard').create({ ipcMain, store: { get: () => store.get() }, broadcast, dataDir: () => app.getPath('userData'), paste: () => sys.paste(!!islands.some((i) => alive(i.win) && i.win.isFocused())) });
+const syncClipboard = clip.sync;
 
 // ---- Permission requests from Claude Code (approve-hook.js): the island asks, you answer. Never answers by itself.
 let apprCounts = new Map();
@@ -614,14 +579,14 @@ const approvals = createApprovals({
 // ---- Camera / microphone in use: a dot on the island (reads the Windows privacy registry, never the device itself)
 let privWatch = null, privState = { camera: false, mic: false };
 function syncPrivacy() {
-  const on = store.get().privacy.dot;
-  if (on && !privWatch) privWatch = privacy.watch((s) => { privState = s; broadcast('privacy:state', s); });
+  const on = store.get().privacy.dot || store.get().meetings.dnd;                  // the call-aware Do not disturb needs the same watcher
+  if (on && !privWatch) privWatch = privacy.watch((s) => { privState = s; broadcast('privacy:state', s); if (store.get().meetings.dnd) syncApprovals(); });
   else if (!on && privWatch) { privWatch.stop(); privWatch = null; privState = { camera: false, mic: false }; broadcast('privacy:state', privState); }
 }
 function syncApprovals() {
   const a = store.get().approvals;
   approvals.setWait(a.wait * 1000);
-  if (!a.enabled || store.get().quiet.dnd || !anyIslandShown()) approvals.askAll();     // off, or the island is hidden behind a full-screen app: back to the terminal prompt
+  if (!a.enabled || dndNow() || !anyIslandShown()) approvals.askAll();     // off, or the island is hidden behind a full-screen app: back to the terminal prompt
 }
 ipcMain.on('approve:answer', (_e, id, behavior) => { if (approvals.answer(id, behavior)) logEvent(`approval ${id}: ${behavior}`); });
 ipcMain.handle('approve:list', () => approvals.list());
@@ -635,6 +600,14 @@ ipcMain.handle('hooks:copy', async () => {
     PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: cmd('approve-hook.js'), timeout: 130 }] }],
   };
   try { await clipboard.writeText(JSON.stringify({ hooks }, null, 2)); return true; } catch { return false; }
+});
+
+// Settings > Apps > Coding agents: the lines to paste into another agent's own config (built here so they carry the real install paths)
+const agentSetup = require('./main/agent-setup');
+ipcMain.handle('agents:list', () => agentSetup.AGENTS.map((a) => ({ id: a.id, name: a.name, where: a.where, note: a.note })));
+ipcMain.handle('agents:copy', async (_e, id) => {
+  if (!agentSetup.AGENTS.some((a) => a.id === id)) return false;
+  try { await clipboard.writeText(agentSetup.snippet(id, unpacked('agent-hook.js'), unpacked('dyisland.cmd'))); return true; } catch { return false; }
 });
 
 // ---- "Claude is working": session state lives here, the island just draws it
@@ -676,18 +649,70 @@ ipcMain.on('island:capture', (e, capture) => {
 });
 
 // ---- Keyboard: the window is unfocusable, so focus it only while a text field is being edited
+// The system helper tracks, all the time, the last window with the keyboard that is not ours. When the island lets go it asks for that window to get the
+// focus back (the helper does nothing if you already went elsewhere). The window turns unfocusable again a moment later; a quick "on" after an "off" wins.
+const inputTimers = new WeakMap();
 ipcMain.on('island:input', (e, on) => {
   const isl = islandOfSender(e.sender); if (!isl) return;
-  isl.win.setFocusable(!!on);
-  if (on) isl.win.focus();
+  clearTimeout(inputTimers.get(isl.win));
+  if (on) { isl.win.setFocusable(true); isl.win.focus(); }
+  else {
+    if (BrowserWindow.getFocusedWindow() === isl.win) sys.fgRestore();       // only if the island itself holds the focus: Settings is in this process too and must keep it
+    inputTimers.set(isl.win, setTimeout(() => { if (alive(isl.win)) { try { isl.win.setFocusable(false); } catch { /* gone */ } } }, 160));
+  }
+});
+ipcMain.on('volume:set', (_e, pct) => sys.setVolume(pct));
+ipcMain.on('volume:mute', (_e, m) => sys.setMute(!!m));
+// ---- App shortcuts (Home card): the list is in the settings (validated there); launching takes an INDEX into it, never a path from the page
+const iconCache = new Map();
+ipcMain.handle('apps:icons', async () => {
+  const out = [];
+  for (const a of store.get().shortcuts.apps) {
+    let url = iconCache.get(a.path);
+    if (!url) { try { url = (await app.getFileIcon(a.path, { size: 'normal' })).toDataURL(); } catch { url = ''; } if (url) iconCache.set(a.path, url); }
+    out.push(url);
+  }
+  return out;
+});
+// Only programs chosen with the file picker (below) may launch: a path put into the settings some other way is listed but never started
+const approvedFile = () => path.join(app.getPath('userData'), 'approved-apps.json');
+const approvedApps = () => { try { const l = JSON.parse(fs.readFileSync(approvedFile(), 'utf8')); return Array.isArray(l) ? l.map((x) => String(x).toLowerCase()) : []; } catch { return []; } };
+ipcMain.on('apps:open', (_e, i) => { const a = store.get().shortcuts.apps[Number(i)]; if (a && approvedApps().includes(a.path.toLowerCase())) shell.openPath(a.path).then((err) => { if (err) logEvent('could not open a shortcut: ' + String(err).slice(0, 80)); }); });
+ipcMain.handle('apps:pick', () => withDialog(async () => {
+  const r = await dialog.showOpenDialog(settings, { title: 'Pick a program or shortcut', properties: ['openFile'], filters: [{ name: 'Programs and shortcuts', extensions: ['exe', 'lnk', 'url', 'appref-ms'] }] });
+  if (r.canceled || !r.filePaths || !r.filePaths[0]) return { ok: false, canceled: true };
+  const cur = store.get().shortcuts.apps;
+  try { fs.writeFileSync(approvedFile(), JSON.stringify([...new Set([...approvedApps(), r.filePaths[0].toLowerCase()])])); } catch { /* unwritable: it will be listed but not launch */ }
+  const next = store.set({ shortcuts: { apps: [...cur, { name: path.basename(r.filePaths[0]).replace(/\.[^.]+$/, ''), path: r.filePaths[0] }] } });
+  return { ok: next.shortcuts.apps.length > cur.length };
+}));
+// Quick tiles that open something on this PC. The page sends a NAME; what each name does is fixed here (nothing from the page reaches a command line).
+const { shell } = require('electron');
+ipcMain.on('quick:run', (_e, k) => {
+  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+  if (k === 'snip') shell.openExternal('ms-screenclip:');
+  else if (k === 'night') shell.openExternal('ms-settings:nightlight');
+  else if (k === 'calc') shell.openExternal('calculator:');
+  else if (k === 'lock') execFile(path.join(ps, 'rundll32.exe'), ['user32.dll,LockWorkStation'], { windowsHide: true }, () => {});
 });
 
 // ---- Now playing: a persistent PowerShell helper talks to the Windows media session
+// The log lives in the user's data folder: the install folder (Program Files, inside app.asar) is read-only, so a log there was silently lost
+// The helper only prints when something changed, so a window that opens later (a new monitor, a reloaded page) needs the last state and the cover replayed
+let lastMedia = null, lastArt = { key: '', art: '' };
+function noteMedia(m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.none) { lastMedia = null; lastArt = { key: '', art: '' }; return; }
+  if (typeof m.art === 'string' && m.art) lastArt = { key: m.key, art: m.art };
+  lastMedia = { ...m, art: undefined };
+}
+const mediaReplay = () => (lastMedia ? { ...lastMedia, ...(lastArt.key === lastMedia.key && lastArt.art ? { art: lastArt.art } : {}) } : null);
+const mediaLogFile = () => path.join(os.homedir(), '.dyisland', 'media.log');
 function startMedia() {
-  try { const lf = path.join(__dirname, 'media.log'); if (fs.statSync(lf).size > 64 * 1024) fs.writeFileSync(lf, ''); } catch { /* no log yet */ }
+  try { fs.mkdirSync(path.dirname(mediaLogFile()), { recursive: true }); const lf = mediaLogFile(); if (fs.statSync(lf).size > 64 * 1024) fs.writeFileSync(lf, ''); } catch { /* no log yet */ }
   media = spawn(
     'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', unpacked('media.ps1')],
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', unpacked('media.ps1'), '-LogFile', mediaLogFile()],
     { windowsHide: true }
   );
   let buf = '';
@@ -699,7 +724,7 @@ function startMedia() {
   media.stderr.setEncoding('utf8');
   media.stderr.on('data', (d) => {
     if (stderrChunks++ >= 8) return;
-    try { fs.appendFileSync(path.join(__dirname, 'media.log'), `${new Date().toISOString()} stderr: ${String(d).slice(0, 600)}\n`); } catch { /* read-only folder */ }
+    try { fs.appendFileSync(mediaLogFile(), `${new Date().toISOString()} stderr: ${String(d).slice(0, 600)}\n`); } catch { /* unwritable folder */ }
   });
   media.stdout.on('data', (chunk) => {
     mediaRestarts = 0;                                  // it is alive and talking
@@ -709,7 +734,7 @@ function startMedia() {
       const line = buf.slice(0, i).trim();
       buf = buf.slice(i + 1);
       if (!line) continue;
-      try { broadcast('media:update', JSON.parse(line)); } catch { /* ignore partial line */ }
+      try { const m = JSON.parse(line); noteMedia(m); broadcast('media:update', m); } catch { /* ignore partial line */ }
     }
   });
   const restartMedia = () => {
@@ -723,44 +748,13 @@ function startMedia() {
 
 ipcMain.on('media:cmd', (_e, cmd, arg) => {
   if (!media || !media.stdin.writable) return;
-  const ok = ['toggle', 'play', 'pause', 'next', 'prev', 'seek'];
+  const ok = ['toggle', 'play', 'pause', 'next', 'prev', 'seek', 'shuffle', 'repeat'];
   if (!ok.includes(cmd)) return;
   const n = cmd === 'seek' ? ' ' + Number(arg) : '';
   media.stdin.write(cmd + n + '\n');
 });
 
-// ---- Weather: Open-Meteo (no API key). Only the city name you type is sent.
-const WMO_URL = 'https://api.open-meteo.com/v1/forecast';
-const weatherCache = new Map();                                   // city -> { at, data }: several islands ask for the same thing
-ipcMain.handle('weather:get', async (_e, city) => {
-  try {
-    const q = String(city || '').trim();
-    if (!q) return { error: 'no-city' };
-    const hit = weatherCache.get(q.toLowerCase());
-    if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.data;
-    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 10000);
-    const gr = await net.fetch(
-      'https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=' + encodeURIComponent(q), { signal: ctl.signal }
-    );
-    if (!gr.ok) return { error: 'offline' };
-    const g = await gr.json();
-    const place = g.results && g.results[0];
-    if (!place) return { error: 'not-found' };
-    const url = `${WMO_URL}?latitude=${place.latitude}&longitude=${place.longitude}` +
-      '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day' +
-      '&hourly=temperature_2m,weather_code,is_day&forecast_days=2&timezone=auto';
-    const wr = await net.fetch(url, { signal: ctl.signal });
-    if (!wr.ok) return { error: 'offline' };
-    const w = await wr.json();
-    if (!w.current || !w.hourly) return { error: 'offline' };   // API error bodies (rate limit etc.)
-    clearTimeout(tm);
-    const data = { place: place.name, country: place.country_code, current: w.current, hourly: w.hourly };
-    weatherCache.set(q.toLowerCase(), { at: Date.now(), data }); if (weatherCache.size > 20) weatherCache.delete(weatherCache.keys().next().value);
-    return data;
-  } catch {
-    return { error: 'offline' };
-  }
-});
+require('./main/weather').register({ ipcMain, run, unpacked });
 
 // ---- Usage: token totals from local Claude Code logs, limits (% left) via Claude Code's saved login
 ipcMain.handle('usage:get', async () => {
@@ -798,6 +792,7 @@ function buildTrayMenu() {
       : { label: 'Pause island for 1 hour', click: () => pauseIsland(60) },
     { label: 'Start with Windows', type: 'checkbox', checked: getAutostart(), click: (item) => setAutostart(item.checked) },
     { type: 'separator' },
+    ...(updater && updater.state().state === 'ready' ? [{ label: 'Install update and restart', click: () => updater.installNow() }] : [{ label: 'Check for updates', click: () => updater && updater.check().then(() => buildTrayMenu()) }]),
     { label: 'Restart DyIsland', click: () => { app.relaunch(); app.quit(); } },
     { label: 'Exit DyIsland', click: () => app.quit() },
   ]));
@@ -814,20 +809,23 @@ app.whenReady().then(() => {
   for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => { fsBeat = Date.now(); });   // the helper slept too: its silence is not a hang
   store = createStore(path.join(app.getPath('userData'), 'settings.json'));
   store.onChange(onSettingsChanged);
-  initAutostart();
+  if (!SMOKE) initAutostart();
+  updater = updaterModule.create({ app, store, logEvent, notify: (n) => { broadcast('notice:show', n); buildTrayMenu(); } }); updater.start();
   syncIslands();
   createSettings();
   createTray();
   startMedia();
+  sys.setFlags({ bluetooth: store.get().devices.toasts, notifications: store.get().notifications.mirror }); sys.start();
+  eventsMod.sync(); googleMod.sync();
   // Claude Code hooks (hook.js) post here; each notice becomes a toast on the island
   notifyServer = notify.start({
-    onNotice: (n) => { lastClaudeEventAt = Date.now(); if (store.get().quiet.dnd) { logEvent(`toast held back (do not disturb): ${n.title}`); return; } logEvent(`toast ${n.kind}: ${n.title}`); broadcast('notice:show', n); },
+    onNotice: (n) => { lastClaudeEventAt = Date.now(); if (dndNow()) { logEvent(`toast held back (do not disturb): ${n.title}`); return; } logEvent(`toast ${n.kind}: ${n.title}`); broadcast('notice:show', n); },
     onActivity,
     anchor: (a) => anchorSession(a),
     onApprove: (info, respond) => {
       lastClaudeEventAt = Date.now();
       anchorSession({ id: info.session, pid: info.pid, project: info.project });         // (the hook waits for the answer, so it is alive while this resolves)
-      if (!store.get().approvals.enabled || store.get().quiet.dnd || !anyIslandShown()) return null;        // null: Claude Code shows its own prompt
+      if (!store.get().approvals.enabled || dndNow() || !anyIslandShown()) return null;        // null: Claude Code shows its own prompt
       const id = approvals.add(info, respond);
       if (id != null) logEvent(`approval ${id} asked: ${info.tool} (${info.project})`);
       return id;
@@ -835,7 +833,14 @@ app.whenReady().then(() => {
     onApproveCancel: (id) => approvals.cancel(id),
   });
   setInterval(pushWorking, 5000);                       // lets timed-out sessions clear without any new event
-  syncHotkey(); syncClipboard(); syncPolling(); syncFullscreenWatch(); syncApprovals(); syncPrivacy();
+  if (!SMOKE) syncHotkey();
+  syncClipboard(); syncPolling(); syncFullscreenWatch(); syncApprovals(); syncPrivacy();
+  if (SMOKE) {
+    let loaded = 0;
+    const done = () => { console.log('SMOKE-OK islands=' + islands.length + ' media=' + (media ? 'spawned' : 'none')); app.quit(); };
+    for (const isl of islands) isl.win.webContents.once('did-finish-load', () => { if (++loaded >= islands.length) setTimeout(done, 3500); });
+    setTimeout(() => { console.log('SMOKE-TIMEOUT'); app.exit(4); }, 25000);
+  }
   for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => syncIslands());   // a monitor was plugged in, removed or changed
 });
 
@@ -846,6 +851,7 @@ app.on('before-quit', () => {
   if (privWatch) privWatch.stop();
   if (fsProc) { try { fsProc.kill(); } catch { /* gone */ } }
   if (focusProc) { try { focusProc.kill(); } catch { /* gone */ } }
+  sys.stop();
   if (media) { try { media.stdin.end(); media.kill(); } catch { /* already gone */ } }
   if (store) store.flush();
 });

@@ -21,7 +21,8 @@ for (const f of ['app.js', 'settings.js']) {
 }
 
 // 2) ipc channels: every invoke/send in preload has a handler/listener in main, every send from main has a listener in preload
-const main = read('main.js');
+const mainParts = ['main.js', ...fs.readdirSync(P + 'main').filter((f) => f.endsWith('.js')).map((f) => 'main/' + f)];   // the main process lives in main.js and the modules beside it
+const main = mainParts.map(read).join('\n');
 const handled = new Set([...main.matchAll(/ipcMain\.(?:handle|on)\('([\w:]+)'/g)].map((m) => m[1]));
 for (const m of preload.matchAll(/ipcRenderer\.(?:invoke|send)\('([\w:]+)'/g)) if (!handled.has(m[1])) problems.push(`preload sends '${m[1]}' but main has no handler`);
 const listened = new Set([...preload.matchAll(/\bon\('([\w:]+)'/g)].map((m) => m[1]));
@@ -29,8 +30,8 @@ for (const m of main.matchAll(/send\((?:win|settings), '([\w:]+)'/g)) if (!liste
 for (const m of main.matchAll(/webContents\.send\('([\w:]+)'/g)) if (!listened.has(m[1])) problems.push(`main sends '${m[1]}' but preload does not listen`);
 
 // 3) require() targets exist
-for (const f of ['main.js', 'usage.js', 'limits.js', 'notify.js', 'hook.js', 'settingsStore.js', 'sessions.js']) {
-  for (const m of read(f).matchAll(/require\('(\.[^']+)'\)/g)) if (!fs.existsSync(P + m[1].replace(/^\.\//, '') + (m[1].endsWith('.js') ? '' : '.js'))) problems.push(`${f}: require('${m[1]}') does not resolve`);
+for (const f of [...mainParts, 'usage.js', 'limits.js', 'notify.js', 'hook.js', 'settingsStore.js', 'sessions.js']) {
+  for (const m of read(f).matchAll(/require\('(\.[^']+)'\)/g)) { const t = path.resolve(path.dirname(P + f), m[1]); if (!fs.existsSync(t + (t.endsWith('.js') ? '' : '.js'))) problems.push(`${f}: require('${m[1]}') does not resolve`); }
 }
 
 // 4) scripts/styles referenced by the html files exist
@@ -50,7 +51,7 @@ for (const cls of ['chip', 'notice', 'tile', 'art', 'spin', 'stat']) {
 }
 
 // 7) stale names from removed features
-for (const f of ['app.js', 'index.html', 'styles.css', 'main.js', 'preload.js']) for (const w of ['account.js', 'onAccountChanged', '#sat', 'sat-txt', 'shortTime(']) if (read(f).includes(w)) problems.push(`${f}: stale reference ${w}`);
+for (const f of ['app.js', 'index.html', 'styles.css', ...mainParts, 'preload.js']) for (const w of ['account.js', 'onAccountChanged', '#sat', 'sat-txt', 'shortTime(']) if (read(f).includes(w)) problems.push(`${f}: stale reference ${w}`);
 
 console.log(problems.length ? 'PROBLEMS:\n' + problems.join('\n') : 'PASS: preload/mock/main channels, requires, ids and stale names all consistent');
 console.log(`(${exposed.size} preload methods, ${mocked.size} mock members, ${handled.size} ipc handlers)`);
