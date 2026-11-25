@@ -2,6 +2,8 @@
 
 A Material 3 Expressive "dynamic island" for Windows. It sits at the top (or left or right) edge of your screen as a small pill, and opens into a clock and calendar, music controls, weather, a timer, Claude Code usage and sessions, clipboard history and more.
 
+Note: This is not for public use, I've been testing vibe coding with this, So i am not comfortable to sell it at public level because I didn't create it. AI did. And I don't wanna promote things that i barely have a hand in. If you still wanna use it knowing all of this.. you can fork it and adjust to your needs as this is setup only for my needs.
+
 ## Install
 
 Download the latest installer from **Releases**: `DyIsland-Setup-<version>.exe` (installs to Program Files, asks for administrator approval once). A portable `DyIsland-<version>-win-x64.zip` is there too.
