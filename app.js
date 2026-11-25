@@ -1415,6 +1415,14 @@
     cb.empty.hidden = !none; cb.list.hidden = none;
     cb.empty.textContent = cbItems.length ? 'Nothing matches that' : (S.clipboard && S.clipboard.images ? 'Copy text or a picture and it shows up here' : 'Copy something and it shows up here');
   }
+  // how many rows fit depends on the page height, which changes while the island opens/resizes: redo the count whenever it changes
+  if (typeof ResizeObserver === 'function') {
+    let cbH = -1, cbRaf = 0;
+    new ResizeObserver(() => {
+      const h = $('.pages').clientHeight; if (h === cbH) return; cbH = h;
+      cancelAnimationFrame(cbRaf); cbRaf = requestAnimationFrame(() => renderClipboard(cbItems));
+    }).observe($('.pages'));
+  }
   cb.list.addEventListener('click', async (e) => {
     const pin = e.target.closest('.cb-pin');
     if (pin) { api.clipboardPin(Number(pin.dataset.pin)); return; }
