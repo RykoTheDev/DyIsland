@@ -17,7 +17,7 @@ const errors = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
-  const w = new BrowserWindow({ x: -4000, y: 0, width: 736, height: 376, show: true, frame: false, transparent: false, backgroundColor: '#202020', skipTaskbar: true, webPreferences: { backgroundThrottling: false } });
+  const w = new BrowserWindow({ x: -4000, y: 0, width: 736, height: 376, show: true, frame: false, transparent: false, backgroundColor: '#202020', skipTaskbar: true, webPreferences: { backgroundThrottling: false, preload: path.join(__dirname, 'no-reduced-motion-preload.js'), sandbox: false, contextIsolation: false } });   // preload: CI runners report prefers-reduced-motion, which would force motion off
   w.webContents.on('console-message', (e) => { const lvl = e.level; if (lvl === 'error' || lvl === 3) errors.push('console: ' + e.message); });
   w.webContents.on('render-process-gone', (_e, d) => errors.push('renderer gone: ' + d.reason));
   const ev = (code) => w.webContents.executeJavaScript(code);
