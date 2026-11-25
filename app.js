@@ -60,6 +60,7 @@
     if (settled) animatePage($('.page.active'));
     settled = false;
     wrap.classList.add('open');
+    markMailSeen(); tickAgo(); refreshStale();
   }
   function close(force) {
     if (typeof hideTray === 'function') hideTray();
@@ -126,6 +127,7 @@
     $$('.page').forEach((p) => p.classList.toggle('active', p.dataset.page === name));
     $$('.nav [data-tab-btn]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.go === name)));
     wrap.dataset.page = name;
+    if (!EXTRA_PAGES.includes(name)) store.set('lastTab', name);
     applyPageSize();
     animatePage($('#p-' + name));
     if (name === 'usage') { const b = $('#u-big'); if (b) b.dataset.v = '0'; loadUsage(); }
@@ -584,6 +586,12 @@
     vol = { pct: Math.max(0, Math.min(100, vol.pct + d)), mute: false };
     api.setVolume(vol.pct); showVolChip();
   }
+  wrap.addEventListener('wheel', (e) => {                              // scroll over the closed pill = volume (the HUD answers)
+    if (isOpen() || Math.abs(e.deltaY) < 4 || vol.pct < 0 || (wrap.classList.contains('has-notice') && wrap.dataset.hud !== '1')) return;
+    e.stopPropagation(); e.preventDefault();
+    vol = { pct: Math.max(0, Math.min(100, vol.pct + (e.deltaY < 0 ? 4 : -4))), mute: false };
+    api.setVolume(vol.pct); if (S.hud && S.hud.volume) showHud();
+  }, { capture: true, passive: false });
   $('#p-music').addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) < 4) return; nudgeVolume(e.deltaY < 0 ? 4 : -4); }, { passive: true });
 
   // ---------------------------------------------------------------- weather
@@ -679,12 +687,48 @@
       loadWeather();
     }
   });
+  let wxSeq = 0, lastWxCity = '';
   async function loadWeather() {
+    const seq = ++wxSeq;                                              // overlapping calls (timer, open, R, the button): only the newest may render
     wEl.cityT.textContent = city || 'Set city';
-    lastWeather = await api.weather(whereNow());
-    renderWeather(lastWeather);
+    const w = await api.weather(whereNow());
+    if (seq !== wxSeq) return true;
+    const failed = !w || (w.error && w.error !== 'no-city' && w.error !== 'not-found');
+    if (failed && lastWeather && lastWeather.current && lastWxCity === city) { mark('weather', false); return false; }       // keep the last good forecast on screen
+    lastWeather = w; lastWxCity = city; renderWeather(w);
+    const ok = !!(w && !w.error); mark('weather', ok || !!(w && w.error === 'no-city')); return ok;
   }
   loadWeather(); setInterval(loadWeather, 15 * 60 * 1000);
+
+  // ---------------------------------------------------------------- Refresh: the buttons, R, the tray tile, and a reload on open when the data is stale
+  const FRESH = { weather: 0, usage: 0, data: 0 }, ERR = { weather: false, usage: false, data: false }, STALE_MS = 5 * 60000, busy = new Set(), ATT = { weather: 0, usage: 0, data: 0 };
+  function mark(k, ok) { ERR[k] = !ok; if (ok) FRESH[k] = Date.now(); tickAgo(); }          // a source counts as fresh only when its fetch really worked
+  const agoText = (t) => { if (!t) return ''; const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? 'Updated just now' : m < 60 ? 'Updated ' + m + 'm ago' : 'Updated ' + Math.floor(m / 60) + 'h ago'; };
+  function tickAgo() {
+    for (const [k, id] of [['weather', '#w-ago'], ['usage', '#u-ago']]) {
+      const el = $(id); if (!el) continue;
+      el.textContent = ERR[k] ? 'Failed. Retry' : agoText(FRESH[k]); el.toggleAttribute('data-err', ERR[k]);
+    }
+    const mt = FRESH.data ? agoText(FRESH.data) : '';
+    for (const id of ['#h-rf', '#h-ev-rf']) { const b = $(id); if (b) b.title = ERR.data ? 'Could not refresh. Retry' : 'Refresh' + (mt ? ' (' + mt.toLowerCase() + ')' : ''); }
+  }
+  setInterval(() => { if (isOpen()) tickAgo(); }, 30000);
+  const JOBS = { weather: () => loadWeather(), usage: () => loadUsage(), data: async () => { const r = api.refreshData ? await api.refreshData() : { ok: true }; mark('data', !!(r && r.ok)); return !!(r && r.ok); } };
+  async function runRefresh(kinds, btns = []) {
+    kinds = kinds.filter((k) => !busy.has(k)); if (!kinds.length) return;
+    kinds.forEach((k) => { busy.add(k); ATT[k] = Date.now(); }); btns.forEach((b) => { b.classList.add('spinning'); b.removeAttribute('data-err'); });
+    await Promise.all([...kinds.map((k) => JOBS[k]().catch(() => { mark(k, false); })), new Promise((r) => setTimeout(r, 600))]);
+    kinds.forEach((k) => busy.delete(k)); btns.forEach((b) => { b.classList.remove('spinning'); b.toggleAttribute('data-err', kinds.some((k) => ERR[k])); });
+    tickAgo();
+  }
+  const refreshHome = (btns) => runRefresh(['weather', 'data'], btns);
+  function refreshStale() { const t = Date.now(), k = ['weather', 'data'].filter((x) => t - FRESH[x] > STALE_MS && t - ATT[x] > 60000); if (k.length) runRefresh(k); }
+  $('#w-rf').addEventListener('click', () => runRefresh(['weather'], [$('#w-rf')]));
+  $('#u-rf').addEventListener('click', () => runRefresh(['usage'], [$('#u-rf')]));
+  for (const id of ['#h-rf', '#h-ev-rf']) {
+    const b = $(id), act = (e) => { e.stopPropagation(); e.preventDefault(); refreshHome([$('#h-rf'), $('#h-ev-rf')]); };
+    b.addEventListener('click', act); b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') act(e); });
+  }
 
   // City editing: the window is unfocusable, so we ask main to make it focusable while typing
   // The city box suggests real places (so "Springfield" can be the right one) and has a "Use my location" row.
@@ -938,12 +982,13 @@
     const seq = ++usageSeq;                                       // overlapping calls: only the newest one may render
     try {
       const [lim, loc] = await Promise.all([api.limits(), api.usage()]);
-      if (seq !== usageSeq) return;
+      if (seq !== usageSeq) return true;
       const local = loc && loc.found ? loc : null;
-      if (lim && lim.ok) return renderPlan(lim, local);           // real limits: % left plus the token total
-      if (local) return renderLocal(local, lim && lim.reason);    // no limits available: tokens only, with a hint why
-      renderEmpty(lim && lim.reason);
-    } catch { if (seq === usageSeq) renderEmpty(); }
+      mark('usage', true);
+      if (lim && lim.ok) { renderPlan(lim, local); return true; }          // real limits: % left plus the token total
+      if (local) { renderLocal(local, lim && lim.reason); return true; }   // no limits available: tokens only, with a hint why
+      renderEmpty(lim && lim.reason); return true;
+    } catch { if (seq === usageSeq) { mark('usage', false); renderEmpty(); } return false; }
   }
   setInterval(() => { if (isOpen() && wrap.dataset.page === 'usage') loadUsage(); }, 60000);
 
@@ -1168,6 +1213,10 @@
     else if (k === 'mute') api.setSettings({ quiet: { mute: !S.quiet.mute } });
     else if (k === 'clip') api.clipboardClear();
     else if (k === 'note' || k === 'net' || k === 'mixer') { hideTray(); if (window.DyFeat) window.DyFeat.tray(k); }
+    else if (k === 'refresh') {
+      const s = b.querySelector('.qs'), was = 'Weather, mail, calendar'; s.textContent = 'Refreshing...';
+      runRefresh(['weather', 'data']).then(() => { s.textContent = ERR.weather || ERR.data ? 'Could not refresh' : 'Updated'; setTimeout(() => { s.textContent = was; }, 2000); });
+    }
     else if (k === 'lock') { api.quick(k); hideTray(); }
     else if (k === 'dnsp') cycleDnsp();
     else if (k === 'dns') {
@@ -1309,12 +1358,16 @@
   document.addEventListener('mouseleave', () => { calTip.hidden = true; });
 
   // Gmail card (Google): unread count and the latest sender; a click opens Gmail
-  let gSt = { status: 'off', mail: { unread: 0, latest: [] } };
+  let gSt = { status: 'off', mail: { unread: 0, latest: [] } }, mailIdx = 0, mailSeen = -1;
+  function markMailSeen() { const m = gSt.mail; if ((gSt.status === 'ok' || gSt.status === 'error') && m) mailSeen = m.unread; wrap.dataset.mail = ''; }     // opening the island = you have seen it (a static dot: nothing loops while collapsed)
+  setInterval(() => { const l = (gSt.mail && gSt.mail.latest) || []; if (isOpen() && wrap.dataset.page === 'home' && l.length > 1) { mailIdx++; renderMail(); } }, 5000);
   function renderMail() {
     const t = $('#h-mail-t'), l = $('#h-mail-l'), ok = gSt.status === 'ok' || gSt.status === 'error', m = gSt.mail || { unread: 0, latest: [] };
     if (!ok && gSt.status !== 'needs-id') { t.textContent = 'Gmail'; l.textContent = 'Connect in Settings'; return; }
-    t.textContent = m.unread === 0 ? 'Inbox zero' : m.unread + (m.unread === 1 ? ' unread' : ' unread');
-    l.textContent = m.latest && m.latest[0] ? (m.latest[0].from ? m.latest[0].from + ': ' : '') + m.latest[0].subject : (m.unread ? 'Open Gmail' : 'All caught up');
+    t.textContent = m.unread === 0 ? 'Inbox zero' : m.unread + ' unread';
+    const x = m.latest && m.latest.length ? m.latest[mailIdx % m.latest.length] : null;                  // the line cycles through the latest senders while the island is open
+    l.textContent = x ? (x.from ? x.from + ': ' : '') + x.subject : (m.unread ? 'Open Gmail' : 'All caught up');
+    if (ok) { if (mailSeen < 0 || m.unread < mailSeen) mailSeen = m.unread; wrap.dataset.mail = m.unread > mailSeen ? 'new' : ''; }
     $('#h-mail').title = (m.latest || []).map((x) => x.from + ' - ' + x.subject).join('\n');
   }
   $('#h-mail').addEventListener('click', () => { if (gSt.status === 'off') api.toggleSettings(); else api.googleOpen('mail'); });
@@ -1460,11 +1513,13 @@
   document.addEventListener('keydown', (e) => {
     if (!isOpen() || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;          // typing in the city box
+    if (editing) return;
     if (hotkeyReveal) armHotkeyTimer();                                                                  // using the keys keeps it open
     const page = wrap.dataset.page;
     if (e.key === 'ArrowRight' && page !== 'approve') { e.preventDefault(); stepTab(1); }
     else if (e.key === 'ArrowLeft' && page !== 'approve') { e.preventDefault(); stepTab(-1); }
     else if (/^[1-9]$/.test(e.key) && page !== 'approve') { const vis = visibleTabs(), t = vis[Number(e.key) - 1]; if (t) { e.preventDefault(); go(t); } }
+    else if ((e.key === 'r' || e.key === 'R') && !e.repeat && ['home', 'weather', 'usage'].includes(page)) { e.preventDefault(); if (page === 'weather') runRefresh(['weather'], [$('#w-rf')]); else if (page === 'usage') runRefresh(['usage'], [$('#u-rf')]); else refreshHome([$('#h-rf'), $('#h-ev-rf')]); }
     else if (e.key === 'Escape' && !tray.classList.contains('show')) { if (editing) return; hotkeyReveal = false; pinned = false; close(true); updateVisibility(); }
     else if ((e.key === ' ' || e.key === 'MediaPlayPause') && page === 'music' && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); api.media('toggle'); }
     else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && page === 'music') { e.preventDefault(); nudgeVolume(e.key === 'ArrowUp' ? 5 : -5); }
@@ -1512,7 +1567,7 @@
     pin(v) { pinned = !!v; if (v) clearTimeout(closeTimer); }, hold(v) { editing = !!v; }, page: () => wrap.dataset.page, noteActivity, visibleTabs,
     settle() { if (!wrap.matches(':hover') && !editing && !pinned) { clearTimeout(closeTimer); closeTimer = setTimeout(close, 700); } updateVisibility(); }, update: () => updateVisibility() };
   applySettings(FALLBACK);
-  Promise.resolve(api.getSettings()).then(applySettings).catch(() => { /* keep the built-in defaults */ });
+  Promise.resolve(api.getSettings()).then((s) => { applySettings(s); const t = store.get('lastTab', 'home'); if (t !== 'home' && wrap.dataset.page !== 'approve' && visibleTabs().includes(t)) go(t); }).catch(() => { /* keep the built-in defaults */ });
   api.onSettings(applySettings);
   Promise.resolve(api.clipboardList && api.clipboardList()).then(renderClipboard).catch(() => {});
 

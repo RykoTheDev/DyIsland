@@ -92,6 +92,7 @@ if (!window.islandAPI) {
       { id: 'c', title: 'Holiday', start: new Date(new Date().getFullYear(), new Date().getMonth(), 28).getTime(), end: new Date(new Date().getFullYear(), new Date().getMonth(), 29).getTime(), allDay: true, location: '', link: '' } ] }), 300); } },
     // Preview only: ?google=1 shows a connected account with mail and a task; window.__google({...}) drives it
     onGoogle(cb) { window.__google = cb; if (new URLSearchParams(location.search).get('google')) setTimeout(() => cb({ status: 'ok', error: '', mail: { unread: 7, latest: [{ id: 'm1', from: 'Sam Lee', subject: 'Lunch on Friday?' }, { id: 'm2', from: 'GitHub', subject: 'New sign-in to your account' }] } }), 400); },
+    async refreshData() { return { ok: true, at: Date.now() }; },
     async googleState() { return { status: new URLSearchParams(location.search).get('google') ? 'ok' : 'off', mail: { unread: 0, latest: [] }, error: '' }; },
     async googleConnect() { window.__googleConnect = true; return { ok: true }; }, async googleDisconnect() { window.__googleDisconnect = true; return { ok: true }; }, googleOpen(w) { window.__googleOpen = w; },
     async eventsGet() { return { list: [], status: 'off' }; }, openEvent(id) { (window.__opened = window.__opened || []).push(id); }, setVolume(p) { window.__volSet = p; }, setMute(m) { window.__muted = m; }, quick(k) { (window.__quick = window.__quick || []).push(k); },

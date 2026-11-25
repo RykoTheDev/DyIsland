@@ -129,12 +129,11 @@ svg.i:not([width]) { width: 24px; height: 24px; }   /* explicit width/height att
 }
 .bars { align-items: center; gap: 4px; height: 16px; }
 .bars b { width: 4px; height: 4px; border-radius: 2px; background: var(--md-sys-color-primary); }
-.bars.live b { height: 10px; }                                  /* collapsed: a still level pattern, nothing loops while the island is closed */
-.bars.live b:nth-child(2) { height: 16px; } .bars.live b:nth-child(3) { height: 7px; } .bars.live b:nth-child(4) { height: 12px; }
-#wrap.open .bars.live b { animation: eq 900ms ease-in-out infinite alternate; }
-#wrap.open .bars.live b:nth-child(2) { animation-delay: -300ms; animation-duration: 700ms; }
-#wrap.open .bars.live b:nth-child(3) { animation-delay: -150ms; animation-duration: 1100ms; }
-#wrap.open .bars.live b:nth-child(4) { animation-delay: -450ms; animation-duration: 800ms; }
+/* the bars dance whenever music plays (collapsed pill included); .compact is hidden while open, so no loop is wasted there */
+.bars.live b { animation: eq 900ms ease-in-out infinite alternate; }
+.bars.live b:nth-child(2) { animation-delay: -300ms; animation-duration: 700ms; }
+.bars.live b:nth-child(3) { animation-delay: -150ms; animation-duration: 1100ms; }
+.bars.live b:nth-child(4) { animation-delay: -450ms; animation-duration: 800ms; }
 @keyframes eq { from { height: 4px; } to { height: 16px; } }
 
 /* ---- Mascot: two cylinder eyes that replace the clock while the island idles ---- */
@@ -466,6 +465,7 @@ svg.i:not([width]) { width: 24px; height: 24px; }   /* explicit width/height att
 
 @media (prefers-reduced-motion: reduce) {
   :root { --d-open: 1ms; --d-close: 1ms; --d-item: 1ms; }
+  .bars.live b { height: 10px; } .bars.live b:nth-child(2) { height: 16px; } .bars.live b:nth-child(3) { height: 7px; } .bars.live b:nth-child(4) { height: 12px; }   /* reduced motion: a still level pattern */
   .bars.live b, #wrap.alert, .spin, .spin circle, .chip-bar i, .stchip[data-kind="work"] .chip-bar i, .stchip.swap, .mascot.sleepy::after { animation: none; }
   .eye { transition: none; }
 }
@@ -511,6 +511,21 @@ svg.i:not([width]) { width: 24px; height: 24px; }   /* explicit width/height att
 .hc-apps .app-btn img { width: 26px; height: 26px; display: block; }
 .hc-apps .app-btn:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent); }
 .hc-apps .app-add { color: var(--md-sys-color-on-surface-variant); font: var(--md-sys-typescale-label-medium); width: 100%; max-width: none; }
+.rf { position: absolute; top: 4px; right: 4px; z-index: 2; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: inherit; opacity: .7; cursor: pointer; }
+.rf:hover, .rf:focus-visible { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent); }
+.rf.spinning svg { animation: spin-rotate .8s linear infinite; }
+.w-now, .u-now, .hc-mail { position: relative; }
+.rf-ago { position: absolute; top: 4px; right: 36px; max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; height: 28px; display: flex; align-items: center; font-size: 11px; opacity: .7; pointer-events: none; white-space: nowrap; }
+.rf-ago:empty { display: none; }
+#p-weather[data-editing] .rf, #p-weather[data-editing] .rf-ago { display: none; }
+.rf[data-err], .rf-ago[data-err] { color: var(--md-sys-color-error); opacity: 1; }
+.hc-ev { position: relative; }
+.hc-ev .rf-in { top: 50%; translate: 0 -50%; right: 6px; width: 24px; height: 24px; }
+.hc-ev .hc-text { padding-right: 22px; }
+.c-mail { width: 6px; height: 6px; border-radius: 50%; background: var(--md-sys-color-primary); }
+[data-mail="new"][data-mode="idle"] .c-mail, [data-mail="new"][data-mode="media"] .c-mail { display: inline-block; }
+.hc-mail .rf-in { top: 50%; translate: 0 -50%; right: 6px; width: 24px; height: 24px; }
+.hc-mail .hc-text { padding-right: 22px; }
 .hc-mail { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
 .cal-tip { position: absolute; z-index: 8; max-width: 260px; padding: 8px 12px; border-radius: 14px; background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface); font: var(--md-sys-typescale-label-medium); white-space: pre-line; pointer-events: none; box-shadow: 0 6px 20px rgb(0 0 0 / .35); }
 .cal-tip[hidden] { display: none; }

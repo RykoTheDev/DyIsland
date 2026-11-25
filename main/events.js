@@ -9,8 +9,8 @@ function create({ ipcMain, store, broadcast, logEvent }) {
   const state = () => ({ list: merged(), status: status === 'off' && extra.length ? 'ok' : status });
   async function refresh() {
     const url = cleanUrl(store.get().events.url);
-    if (!url) { list = []; status = 'off'; broadcast('events:list', state()); return; }
-    if (busy) return;
+    if (!url) { list = []; status = 'off'; broadcast('events:list', state()); return status; }
+    if (busy) return status;
     busy = true;
     const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 15000);
     try {
@@ -23,6 +23,7 @@ function create({ ipcMain, store, broadcast, logEvent }) {
     } catch (e) { status = 'error'; logEvent('calendar link could not be read (' + (e && e.message || 'error') + ')'); }
     finally { clearTimeout(tm); busy = false; }
     broadcast('events:list', state());
+    return status;
   }
   // Called whenever settings change: a new link is read at once, no link stops everything
   function sync() {

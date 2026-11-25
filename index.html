@@ -123,6 +123,7 @@
       <span class="c-work" aria-live="off">0:00</span>
       <span class="c-count"></span>
       <span class="c-time">--:--</span>
+      <span class="c-mail" id="c-mail" aria-hidden="true" title="New email"></span>
       <span class="c-temp"></span>
     </div>
 
@@ -167,11 +168,13 @@
               <button class="hc hc-ev sl" id="h-ev" style="--i:5">
                 <span class="tile"><svg class="i" width="24" height="24"><use href="#i-event"/></svg></span>
                 <span class="hc-text"><span class="title-medium" id="h-ev-t">No events</span><span class="label-medium" id="h-ev-l">Next event</span></span>
+                <span class="rf rf-in" id="h-ev-rf" role="button" tabindex="0" aria-label="Refresh calendar" title="Refresh"><svg class="i" width="14" height="14"><use href="#i-restart"/></svg></span>
               </button>
               <div class="hc hc-apps" id="h-apps" style="--i:5"></div>
               <button class="hc hc-mail sl" id="h-mail" style="--i:5">
                 <span class="tile"><svg class="i" width="24" height="24"><use href="#i-mail"/></svg></span>
                 <span class="hc-text"><span class="title-medium" id="h-mail-t">Gmail</span><span class="label-medium" id="h-mail-l">Not connected</span></span>
+                <span class="rf rf-in" id="h-rf" role="button" tabindex="0" aria-label="Refresh Gmail and calendar" title="Refresh"><svg class="i" width="14" height="14"><use href="#i-restart"/></svg></span>
               </button>
               <button class="hc hc-cd sl" id="h-cd" style="--i:5">
                 <span class="tile"><svg class="i" width="24" height="24"><use href="#i-flag"/></svg></span>
@@ -213,6 +216,8 @@
             <button class="w-city sl" id="w-city"><svg class="i" width="16" height="16"><use href="#i-pin"/></svg><span id="w-city-t">Set city</span></button>
             <input class="w-input" id="w-input" placeholder="City" hidden autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="w-sug">
             <div class="w-sug" id="w-sug" role="listbox" hidden></div>
+            <span class="rf-ago label-medium" id="w-ago" aria-live="off"></span>
+            <button class="rf sl" id="w-rf" aria-label="Refresh weather" title="Refresh"><svg class="i" width="16" height="16"><use href="#i-restart"/></svg></button>
             <div class="w-big"><svg class="i" width="48" height="48"><use id="w-icon" href="#w-partly"/></svg><span class="display-small" id="w-temp">--</span></div>
             <div class="label-medium" id="w-cond">Add a city to see the weather</div>
             <div class="label-medium w-hilo" id="w-hilo"></div>
@@ -256,6 +261,8 @@
         <!-- data-view: plan (real limits, % left) | local (tokens only, no limits available) | empty -->
         <section class="page" id="p-usage" data-page="usage" data-view="empty">
           <div class="u-now" style="--i:0">
+            <span class="rf-ago label-medium" id="u-ago" aria-live="off"></span>
+            <button class="rf sl" id="u-rf" aria-label="Refresh usage" title="Refresh"><svg class="i" width="16" height="16"><use href="#i-restart"/></svg></button>
             <div class="label-medium" id="u-label">Claude usage</div>
             <div class="display-small" id="u-big">--</div>
             <div class="label-medium" id="u-sub"></div>
@@ -361,6 +368,7 @@
     <button class="qtile sl" role="menuitemcheckbox" data-q="mute"><span class="qic"><svg class="i" width="20" height="20"><use href="#i-mute"/></svg></span><span class="qt"><span class="ql">Mute sounds</span><span class="qs">Off</span></span></button>
     <button class="qtile sl" role="menuitemcheckbox" data-q="dnsp" hidden><span class="qic"><svg class="i" width="20" height="20"><use href="#i-dns"/></svg></span><span class="qt"><span class="ql">DNS</span><span class="qs">Auto</span></span></button>
     <button class="qtile sl" role="menuitemcheckbox" data-q="dns" hidden><span class="qic"><svg class="i" width="20" height="20"><use href="#i-dns"/></svg></span><span class="qt"><span class="ql">NextDNS</span><span class="qs">Off</span></span></button>
+    <button class="qtile sl" role="menuitem" data-q="refresh"><span class="qic"><svg class="i" width="20" height="20"><use href="#i-restart"/></svg></span><span class="qt"><span class="ql">Refresh all</span><span class="qs">Weather, mail, calendar</span></span></button>
     <button class="qtile sl" role="menuitem" data-q="clip"><span class="qic"><svg class="i" width="20" height="20"><use href="#i-clip"/></svg></span><span class="qt"><span class="ql">Clear clips</span><span class="qs">Tap</span></span></button>
     <button class="qtile sl" role="menuitem" data-q="lock"><span class="qic"><svg class="i" width="20" height="20"><use href="#i-lock"/></svg></span><span class="qt"><span class="ql">Lock PC</span><span class="qs">Tap</span></span></button>
     <button class="qtile sl" role="menuitem" data-q="net" hidden><span class="qic"><svg class="i" width="20" height="20"><use href="#i-wifi"/></svg></span><span class="qt"><span class="ql">Network</span><span class="qs">Open</span></span></button>

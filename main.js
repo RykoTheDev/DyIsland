@@ -346,6 +346,11 @@ ipcMain.handle('claude:focus', async (_e, session) => {
 const eventsMod = require('./main/events').create({ ipcMain, store: { get: () => store.get() }, broadcast, logEvent });
 const googleMod = require('./main/google').create({ app, safeStorage: require('electron').safeStorage, shell: require('electron').shell, net, store: { get: () => store.get() }, broadcast, logEvent, setExtraEvents: (l) => eventsMod.setExtra(l) });
 ipcMain.handle('google:state', () => googleMod.state());
+ipcMain.handle('data:refresh', async () => {
+  const [ev] = await Promise.allSettled([eventsMod.refresh(), googleMod.refresh()]);
+  const bad = (ev.status === 'fulfilled' && ev.value === 'error') || ev.status === 'rejected' || googleMod.state().status === 'error';
+  return { ok: !bad, at: Date.now() };
+});   // the refresh buttons: calendar link + Gmail/Calendar/Tasks now
 ipcMain.handle('google:connect', () => googleMod.connect());
 ipcMain.handle('google:disconnect', () => googleMod.disconnect());
 ipcMain.on('google:open', (_e, what) => { const u = { mail: 'https://mail.google.com/', calendar: 'https://calendar.google.com/', tasks: 'https://tasks.google.com/' }[what]; if (u) require('electron').shell.openExternal(u); });

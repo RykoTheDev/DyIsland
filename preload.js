@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('islandAPI', {
   onSettingsState: (cb) => on('settings:state', (open) => cb(!!open)),
   reportSize: (sz) => ipcRenderer.send('island:size', { w: Number(sz && sz.w) || 0, h: Number(sz && sz.h) || 0 }),   // the open size of the page on screen (the settings card is placed from it)
   onEvents: (cb) => on('events:list', cb),                           // { list, status } from the calendar link
+  refreshData: () => ipcRenderer.invoke('data:refresh'),                   // re-reads the calendar link and Google now (the refresh buttons)
   googleState: () => ipcRenderer.invoke('google:state'),
   googleConnect: () => ipcRenderer.invoke('google:connect'),
   googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
