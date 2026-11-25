@@ -111,6 +111,7 @@ function create({ ipcMain, store, broadcast, dataDir, paste }) {
   // Click-to-paste (opt-in): copy it, then send Ctrl+V to the window that has the keyboard
   ipcMain.handle('clipboard:paste', async (_e, id) => { if (!cfg().paste) return false; const ok = await copyItem(id); if (ok && paste) setTimeout(paste, 60); return ok; });
   ipcMain.handle('clipboard:pin', (_e, id) => { items = L.togglePin(items, Number(id), cfg().max); savePins(); send(); return true; });
+  ipcMain.handle('clipboard:search', (_e, q) => { const n = String(q == null ? '' : q).toLowerCase().trim(); const v = L.view(items); return n ? v.filter((x) => x.kind === 'text' && String(x.text || x.preview || '').toLowerCase().includes(n)) : v; });
   ipcMain.handle('clipboard:clear', () => { items = L.clearUnpinned(items); send(); return true; });   // pinned items stay: unpin them to remove them
 
   return { sync, items: () => L.view(items) };

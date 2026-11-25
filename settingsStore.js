@@ -7,9 +7,10 @@ const { cleanUrl } = require('./main/ics');
 const DNSP = require('./dns-profiles');
 
 const EDGES = ['top', 'left', 'right'];
-const TAB_IDS = ['home', 'music', 'weather', 'timer', 'usage', 'clipboard'];
+const TAB_IDS = ['home', 'music', 'weather', 'timer', 'usage', 'clipboard', 'localsend'];
 const HOTKEYS = ['Control+Alt+Space', 'Control+Alt+D', 'Control+Alt+I', 'Control+Shift+Space', ''];   // '' = off
 const SETTINGS_HOTKEYS = ['Control+Alt+F10', 'Control+Alt+F9', 'Control+Alt+,', ''];   // no letters: on many keyboards AltGr is Ctrl+Alt and would steal a typed letter                    // opens the settings window ('' = off)
+const NOTES_HOTKEYS = ['Control+Alt+N', 'Control+Alt+J', 'Control+Alt+K', ''];
 const LIMITS = {                                   // [min, max] in px; the minimums are what the pages can lay out without overflowing
   idleW: [100, 260], idleH: [24, 48],
   openW: [416, 640], openH: [232, 340],
@@ -25,13 +26,12 @@ const DEFAULTS = Object.freeze({
   theme: { mode: 'auto', variant: 'vibrant', seed: '#1FB5A5', preset: 'teal' },
   size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 }, adaptive: true },   // adaptive: some pages open the island a little smaller or bigger
   tabs: TAB_IDS.slice(),                           // order of the tab buttons in the expanded island
-  hiddenTabs: ['clipboard'],                       // tabs that exist but are switched off
+  hiddenTabs: ['clipboard', 'localsend'],                       // tabs that exist but are switched off
   mascot: { enabled: true, delay: 8 },             // eyes appear after `delay` seconds of idling
   hotkey: 'Control+Alt+Space',
   settingsHotkey: '',                              // opens Settings from anywhere (off until you pick one)
   quiet: { dnd: false, mute: false },              // do not disturb (no toasts, no approval cards, no chimes) / just mute the chimes
   clipboard: { enabled: false, max: 12, images: false, paste: false, persistPins: false },   // history is opt-in and kept in memory; the three extras are opt-in too
-  battery: { warn: true },
   units: { temp: 'c', clock: 'auto' },
   calendar: { weekStart: 'auto' },
   privacy: { dot: true },                          // a dot on the island while the camera or microphone is in use
@@ -46,7 +46,17 @@ const DEFAULTS = Object.freeze({
   shortcuts: { apps: [] },                         // the Home page's App shortcuts card: [{ name, path }]
   dnsp: { presets: [], custom: [] },               // DNS providers to offer in the quick-actions tile (installed once, with Windows approval): preset ids + up to 2 custom ones
   hud: { volume: true },                           // show the volume on the island when it changes (the Windows pop-up still appears too)
-  devices: { toasts: true },                       // a toast when a Bluetooth device connects or the charger is plugged in
+  devices: { toasts: true, charger: true, battery: true, lowAt: 15 },   // toasts when a Bluetooth device connects, the charger is plugged in/out, the battery runs low (toasts is the master switch)
+  localsend: { enabled: false, receive: false, alias: '', saveDir: '', autoAccept: false },   // LocalSend: send files to nearby devices (opens UDP 53317), and receive (HTTPS on 53317)
+  drop: { enabled: true },                         // a file dragged towards the island turns the drop zone on
+  shelf: { enabled: false, max: 12 },               // file shelf: files parked on the island, dragged out later
+  captures: { enabled: false },                    // hold the newest screenshot / screen recording so it can be dragged out
+  downloads: { enabled: false },                   // progress of browser downloads (Downloads folder, .crdownload / .part files)
+  network: { enabled: false, host: '1.1.1.1', vpnAlerts: true },   // IP, ping and VPN status
+  focus: { sync: false },                          // follow the Windows Do not disturb switch
+  notes: { enabled: false, hotkey: 'Control+Alt+N', file: '' },   // global quick-note hotkey, appended to a notes file
+  urltools: { enabled: true, shorten: false },     // actions on a copied link; shortening calls an external service (is.gd) so it is off
+  mixer: { enabled: false },                       // per-app volume
   meetings: { dnd: false },                        // Do not disturb switches itself on while an app uses the camera or microphone
   music: { artColors: true },                      // the island takes its colours from the cover of what is playing (not under a named theme)
   updates: { check: true },                        // look for a new version on GitHub (the installed build only)
@@ -66,6 +76,12 @@ function deepMerge(base, patch) {
 
 // the settings shortcut must differ from the island shortcut (two actions cannot share one key)
 function settingsKey(v, islandKey, fallback) { const k = oneOf(v, SETTINGS_HOTKEYS, fallback); return k && k === islandKey ? '' : k; }
+
+const cleanText = (v, n) => (typeof v === 'string' ? v.replace(/[\x00-\x1f]/g, ' ').trim().slice(0, n) : '');
+// a folder or file the user typed or picked: an absolute Windows path, no wildcards (empty = the default)
+const cleanDir = (v) => { const p = cleanText(v, 260); return /^[A-Za-z]:\\[^<>"|?*]*$/.test(p) ? p.replace(/[\\/]+$/, '') : ''; };
+const cleanFile = (v) => { const p = cleanText(v, 260); return /^[A-Za-z]:\\[^<>"|?*]+\.(?:md|txt)$/i.test(p) ? p : ''; };
+function notesKey(v, taken, fallback) { const k = oneOf(v, NOTES_HOTKEYS, fallback); return k && taken.includes(k) ? '' : k; }
 
 function sanitizePlacement(p) {
   const r = isObj(p) ? p : {}, d = DEFAULTS.placement;
@@ -126,7 +142,14 @@ function sanitize(raw) {
   let hidden = Array.isArray(r.hiddenTabs) ? r.hiddenTabs.filter((t, i, a) => TAB_IDS.includes(t) && a.indexOf(t) === i) : d.hiddenTabs.slice();
   const clipOn = bool(isObj(r.clipboard) ? r.clipboard.enabled : undefined, d.clipboard.enabled);
   if (!clipOn && !hidden.includes('clipboard')) hidden.push('clipboard');             // no history, no tab
-  const usable = tabs.filter((t) => t !== 'clipboard' || clipOn);                      // the Clipboard tab only counts while history is on
+  const lsOn = bool(isObj(r.localsend) ? r.localsend.enabled : undefined, d.localsend.enabled);
+  const shOn = bool(isObj(r.shelf) ? r.shelf.enabled : undefined, d.shelf.enabled);
+  const shareOn = lsOn || shOn;                                                        // Share tab = LocalSend + Shelf: on while either is on
+  const hadShelfTab = Array.isArray(r.tabs) && r.tabs.includes('shelf') && Array.isArray(r.hiddenTabs) && !r.hiddenTabs.includes('shelf');   // pre-merge settings with a visible Shelf tab
+  if (shOn && hadShelfTab) hidden = hidden.filter((t) => t !== 'localsend');
+  if (!shareOn && !hidden.includes('localsend')) hidden.push('localsend');            // feature off, no tab
+  const featureOn = { clipboard: clipOn, localsend: shareOn };
+  const usable = tabs.filter((t) => featureOn[t] !== false);                      // the Clipboard tab only counts while history is on
   if (!usable.some((t) => !hidden.includes(t))) hidden = hidden.filter((t) => t !== usable[0]);   // never hide every tab
 
   return {
@@ -162,7 +185,6 @@ function sanitize(raw) {
       paste: bool(isObj(r.clipboard) ? r.clipboard.paste : undefined, d.clipboard.paste),
       persistPins: bool(isObj(r.clipboard) ? r.clipboard.persistPins : undefined, d.clipboard.persistPins),
     },
-    battery: { warn: bool(isObj(r.battery) ? r.battery.warn : undefined, d.battery.warn) },
     units: {
       temp: oneOf(isObj(r.units) ? r.units.temp : undefined, ['c', 'f'], d.units.temp),
       clock: oneOf(isObj(r.units) ? r.units.clock : undefined, ['auto', '12', '24'], d.units.clock),
@@ -184,7 +206,32 @@ function sanitize(raw) {
     shortcuts: sanitizeApps(r.shortcuts),
     dnsp: sanitizeDnsp(r.dnsp),
     hud: { volume: bool(isObj(r.hud) ? r.hud.volume : undefined, d.hud.volume) },
-    devices: { toasts: bool(isObj(r.devices) ? r.devices.toasts : undefined, d.devices.toasts) },
+    devices: {
+      toasts: bool(isObj(r.devices) ? r.devices.toasts : undefined, d.devices.toasts), charger: bool(isObj(r.devices) ? r.devices.charger : undefined, d.devices.charger),
+      battery: bool(isObj(r.devices) ? r.devices.battery : undefined, d.devices.battery), lowAt: clamp(isObj(r.devices) ? r.devices.lowAt : undefined, [5, 50], d.devices.lowAt),
+    },
+    localsend: {
+      enabled: bool(isObj(r.localsend) ? r.localsend.enabled : undefined, d.localsend.enabled), receive: bool(isObj(r.localsend) ? r.localsend.receive : undefined, d.localsend.receive),
+      alias: cleanText(isObj(r.localsend) ? r.localsend.alias : '', 40), saveDir: cleanDir(isObj(r.localsend) ? r.localsend.saveDir : ''),
+      autoAccept: bool(isObj(r.localsend) ? r.localsend.autoAccept : undefined, d.localsend.autoAccept),
+    },
+    drop: { enabled: bool(isObj(r.drop) ? r.drop.enabled : undefined, d.drop.enabled) },
+    shelf: { enabled: bool(isObj(r.shelf) ? r.shelf.enabled : undefined, d.shelf.enabled), max: clamp(isObj(r.shelf) ? r.shelf.max : undefined, [3, 40], d.shelf.max) },
+    captures: { enabled: bool(isObj(r.captures) ? r.captures.enabled : undefined, d.captures.enabled) },
+    downloads: { enabled: bool(isObj(r.downloads) ? r.downloads.enabled : undefined, d.downloads.enabled) },
+    network: {
+      enabled: bool(isObj(r.network) ? r.network.enabled : undefined, d.network.enabled),
+      host: typeof (isObj(r.network) && r.network.host) === 'string' && /^[A-Za-z0-9.-]{1,80}$/.test(r.network.host.trim()) ? r.network.host.trim() : d.network.host,
+      vpnAlerts: bool(isObj(r.network) ? r.network.vpnAlerts : undefined, d.network.vpnAlerts),
+    },
+    focus: { sync: bool(isObj(r.focus) ? r.focus.sync : undefined, d.focus.sync) },
+    notes: {
+      enabled: bool(isObj(r.notes) ? r.notes.enabled : undefined, d.notes.enabled),
+      hotkey: notesKey(isObj(r.notes) ? r.notes.hotkey : undefined, [oneOf(r.hotkey, HOTKEYS, d.hotkey), settingsKey(r.settingsHotkey, oneOf(r.hotkey, HOTKEYS, d.hotkey), d.settingsHotkey)], d.notes.hotkey),
+      file: cleanFile(isObj(r.notes) ? r.notes.file : ''),
+    },
+    urltools: { enabled: bool(isObj(r.urltools) ? r.urltools.enabled : undefined, d.urltools.enabled), shorten: bool(isObj(r.urltools) ? r.urltools.shorten : undefined, d.urltools.shorten) },
+    mixer: { enabled: bool(isObj(r.mixer) ? r.mixer.enabled : undefined, d.mixer.enabled) },
     meetings: { dnd: bool(isObj(r.meetings) ? r.meetings.dnd : undefined, d.meetings.dnd) },
     music: { artColors: bool(isObj(r.music) ? r.music.artColors : undefined, d.music.artColors) },
     updates: { check: bool(isObj(r.updates) ? r.updates.check : undefined, d.updates.check) },
@@ -230,4 +277,4 @@ function createStore(file, { debounceMs = 250 } = {}) {
   };
 }
 
-module.exports = { DEFAULTS, LIMITS, TAB_IDS, HOTKEYS, SETTINGS_HOTKEYS, sanitize, deepMerge, createStore };
+module.exports = { NOTES_HOTKEYS, DEFAULTS, LIMITS, TAB_IDS, HOTKEYS, SETTINGS_HOTKEYS, sanitize, deepMerge, createStore };

@@ -85,6 +85,22 @@ app.whenReady().then(async () => {
   const dp = await ev("(async () => (await window.islandAPI.getSettings()).dnsp)()");
   if (!dp || !dp.presets.includes('google') || !dp.custom.length || dp.custom[0].v4a !== '10.1.2.3') errors.push('DNS provider choices did not reach the settings: ' + JSON.stringify(dp));
   await shot('settings-apps');
+  // regrouped Apps tab: one Share group, no leftover Send/Tools groups, every key still bound once, dependents follow their switch
+  const grp = await ev("(() => ({ old: !!document.getElementById('g-send') || !!document.getElementById('g-tools'), now: ['g-share', 'g-capture', 'g-netfocus', 'g-notes'].every((id) => document.getElementById(id)), dup: [...document.querySelectorAll('[data-bind]')].map((e) => e.dataset.bind).filter((b, i, a) => a.indexOf(b) !== i && !document.querySelector('[data-bind=\"' + b + '\"][type=radio]')).join(), tab: (window.__tabName || ''), record: document.body.textContent.includes('Record screen') }))()");
+  if (grp.old || !grp.now) errors.push('the Send and Island tools groups should be replaced by Share, Capture, Network and Notes groups: ' + JSON.stringify(grp));
+  if (grp.record) errors.push('settings still mention the removed Record screen tile');
+  await ev("(async () => { await window.islandAPI.setSettings({ localsend: { enabled: false, receive: false } }); })()"); await sleep(300);
+  const dep = await ev("(() => { const r = document.querySelector('[data-needs=\"localsend.receive\"]'); const c = document.querySelector('[data-bind=\"localsend.autoAccept\"]'); return !!c && (c.disabled || r.hasAttribute('data-off') || getComputedStyle(r).opacity < 1 || getComputedStyle(r).pointerEvents === 'none'); })()");
+  if (!dep) errors.push('Accept without asking should be greyed out while Receive files is off');
+  await ev("document.querySelector('#stabs [data-tab=layout]').click()"); await sleep(250);
+  const shareRow = await ev("(() => { const r = document.querySelector('.tab-row[data-id=localsend]'); return r ? r.querySelector('.tab-name').textContent : ''; })()");
+  if (shareRow !== 'Share' || await ev("!!document.querySelector('.tab-row[data-id=shelf]')")) errors.push('Tabs should list one Share row and no Shelf row (got "' + shareRow + '")');
+  await shot('settings-layout');
+  await ev("document.querySelector('#stabs [data-tab=apps]').click()"); await sleep(250);
+  await ev("document.getElementById('g-share').scrollIntoView()"); await sleep(250);
+  await shot('settings-share');
+  await ev("document.getElementById('g-netfocus').scrollIntoView()"); await sleep(250);
+  await shot('settings-netfocus');
   // a bad calendar link is refused by the store, a good one kept (store rules are tested in node; here the page just must not choke)
   try { const img = await w.webContents.capturePage(); fs.writeFileSync(path.join(shots, 'settings.png'), img.toPNG()); } catch (e) { errors.push('screenshot: ' + e.message); }
   console.log(errors.length ? 'UI SETTINGS FAILED:\n  ' + errors.join('\n  ') : `UI SETTINGS PASSED (${binds.length} bound controls, ${flipped} flipped and read back)`);

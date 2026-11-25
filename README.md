@@ -29,6 +29,7 @@ DyIsland starts with Windows (switch it off in the tray menu).
 - **Quiet during calls:** Do not disturb switches itself on while an app uses your camera or microphone.
 - **Windows notifications on the island** and **Bluetooth / charger toasts** (Settings > Alerts, the notifications one is off by default).
 - **Weather:** a city picker that shows the right Springfield, "Use my location", and a 5-day view (click the strip).
+- **LocalSend (send and receive files on your network):** the first time DyIsland listens, Windows Firewall asks whether to allow it. Allow it on private networks: LocalSend needs TCP and UDP port 53317 (TCP to receive, UDP to find nearby devices). The installer does not add a firewall rule, so if you clicked Cancel, add one yourself or allow DyIsland in Windows Security > Firewall.
 - **Updates:** the installed build looks for new releases on GitHub and installs them when you quit. The portable zip does not update itself.
 
 ## Develop
@@ -48,9 +49,9 @@ npm run build:theme  # rebuild vendor/dycolor.js (Material colour algorithm)
 
 1. Bump `version` in `package.json` and commit.
 2. `git tag v<version> && git push origin v<version>`
-3. The **Release** workflow tests, builds the installer and zip, and attaches them (with SHA-256 checksums) to a GitHub release.
+3. The **Release** workflow runs the unit tests and the UI smoke tests (both must pass), builds the installer and zip, and attaches them (with SHA-256 checksums) to a GitHub release.
 
-The **CI** workflow runs the tests and a package build on every push and pull request.
+The **CI** workflow runs the tests and a package build on every push and pull request. Its UI smoke test is advisory there (it does not block the build).
 
 ## Notes
 

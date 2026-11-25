@@ -39,6 +39,7 @@ const SET_GAP = 8;
 
 // One island window per chosen monitor. `win` is the lead island (the primary monitor's if it has one): legacy single-window code uses it.
 let win, settings, tray, media, mediaRestarts = 0, settingsHiddenAt = 0, store, updater = null;
+let v3 = null;                                       // the 3.0 features (main/v3.js), created once the settings are loaded
 const islands = [];                                  // { win, display, lead, near, nearUntil, lastGaze }
 
 // Only one DyIsland at a time (matters with autostart: launching it by hand must not stack a second island)
@@ -87,6 +88,8 @@ const sys = require('./main/system').create({
   bluetooth: true,
   onNotification: (n) => mirrorNotification(n),
   onVolume: (v) => broadcast('system:volume', v),
+  onPower: (p) => { if (v3) v3.onPower(p); },
+  onMouse: (d) => { if (v3) v3.onMouse(d); },
   onBluetooth: (e) => { if (e.state !== 'connected' || !store || !store.get().devices.toasts || dndNow()) return; logEvent('bluetooth connected: ' + e.name); broadcast('notice:show', { kind: 'done', tone: 'info', duration: 4, title: e.name, sub: 'Bluetooth connected' }); },
 });
 
@@ -381,7 +384,8 @@ function onSettingsChanged(s) {
   send(settings, 'settings:changed', s);
   if (alive(settings)) settings.setBounds(settingsBounds());   // the open height moved
   syncHotkey(); syncClipboard(); syncPolling(); syncFullscreenWatch(); applyWindowVisibility(); syncApprovals(); syncPrivacy();
-  sys.setFlags({ bluetooth: s.devices.toasts, notifications: s.notifications.mirror });
+  if (v3) v3.sync();
+  sys.setFlags({ bluetooth: s.devices.toasts, notifications: s.notifications.mirror, ...(v3 ? v3.sysFlags() : {}) });
   eventsMod.sync(); googleMod.sync();
 }
 
@@ -530,7 +534,8 @@ let hotkeyState = { accelerator: '', ok: false };
 let hotkeyWant = false;                                        // what the next press asks every island to do (open / close), so they cannot drift out of step
 function syncHotkey() {
   const cfg = store.get(), want = cfg.hotkey, wantS = cfg.settingsHotkey;
-  const attempt = want + '|' + wantS;
+  const wantN = v3 ? v3.notesKey() : '';
+  const attempt = want + '|' + wantS + '|' + wantN;
   if (attempt === hotkeyState.attempt) return;                 // same shortcuts as last time (working or not): do not drop, re-take and log on every slider tick
   try { globalShortcut.unregisterAll(); } catch { /* none registered */ }
   let ok = false, okS = false;
@@ -540,6 +545,7 @@ function syncHotkey() {
   if (wantS) {
     try { okS = globalShortcut.register(wantS, () => { if (isPaused()) resumeIsland(); toggleSettings(null); }); } catch { okS = false; }
   }
+  if (wantN && !v3.registerNotes()) logEvent('note hotkey ' + wantN + ' could not be registered (another app uses it?)');
   hotkeyState = { accelerator: want, ok: !want || ok, settings: { accelerator: wantS, ok: !wantS || okS }, attempt };
   if (want && !ok) logEvent('hotkey ' + want + ' could not be registered (another app uses it?)');
   if (wantS && !okS) logEvent('settings hotkey ' + wantS + ' could not be registered (another app uses it?)');
@@ -644,8 +650,9 @@ function onActivity(a) {
 // ---- Mouse capture: island captures clicks, the rest of the window passes them through
 ipcMain.on('island:capture', (e, capture) => {
   const isl = islandOfSender(e.sender); if (!isl) return;
+  isl.wantCapture = !!capture;
   if (capture) isl.win.setIgnoreMouseEvents(false);
-  else isl.win.setIgnoreMouseEvents(true, { forward: true });
+  else if (!isl.dropArmed) isl.win.setIgnoreMouseEvents(true, { forward: true });          // (a drag heading for the island keeps it a drop target until it ends: see main/v3.js)
 });
 
 // ---- Keyboard: the window is unfocusable, so focus it only while a text field is being edited
@@ -686,14 +693,11 @@ ipcMain.handle('apps:pick', () => withDialog(async () => {
   const next = store.set({ shortcuts: { apps: [...cur, { name: path.basename(r.filePaths[0]).replace(/\.[^.]+$/, ''), path: r.filePaths[0] }] } });
   return { ok: next.shortcuts.apps.length > cur.length };
 }));
-// Quick tiles that open something on this PC. The page sends a NAME; what each name does is fixed here (nothing from the page reaches a command line).
+// The one quick action left (lock the PC). The page sends a NAME; what each name does is fixed here (nothing from the page reaches a command line).
 const { shell } = require('electron');
 ipcMain.on('quick:run', (_e, k) => {
   const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
-  if (k === 'snip') shell.openExternal('ms-screenclip:');
-  else if (k === 'night') shell.openExternal('ms-settings:nightlight');
-  else if (k === 'calc') shell.openExternal('calculator:');
-  else if (k === 'lock') execFile(path.join(ps, 'rundll32.exe'), ['user32.dll,LockWorkStation'], { windowsHide: true }, () => {});
+  if (k === 'lock') execFile(path.join(ps, 'rundll32.exe'), ['user32.dll,LockWorkStation'], { windowsHide: true }, () => {});
 });
 
 // ---- Now playing: a persistent PowerShell helper talks to the Windows media session
@@ -815,7 +819,9 @@ app.whenReady().then(() => {
   createSettings();
   createTray();
   startMedia();
-  sys.setFlags({ bluetooth: store.get().devices.toasts, notifications: store.get().notifications.mirror }); sys.start();
+  v3 = require('./main/v3').create({ app, ipcMain, store: { get: () => store.get(), set: (p) => store.set(p) }, broadcast, send, islands: () => islands, alive, screen, shell: require('electron').shell, globalShortcut, nativeImage, net, logEvent, dndNow, unpacked, placement });
+  sys.setFlags({ bluetooth: store.get().devices.toasts, notifications: store.get().notifications.mirror, ...v3.sysFlags() }); sys.start();
+  v3.sync();
   eventsMod.sync(); googleMod.sync();
   // Claude Code hooks (hook.js) post here; each notice becomes a toast on the island
   notifyServer = notify.start({
@@ -837,7 +843,10 @@ app.whenReady().then(() => {
   syncClipboard(); syncPolling(); syncFullscreenWatch(); syncApprovals(); syncPrivacy();
   if (SMOKE) {
     let loaded = 0;
-    const done = () => { console.log('SMOKE-OK islands=' + islands.length + ' media=' + (media ? 'spawned' : 'none')); app.quit(); };
+    const done = async () => {
+      if (process.env.DYISLAND_SMOKE_EVAL) { try { console.log('SMOKE-EVAL ' + JSON.stringify(await islands[0].win.webContents.executeJavaScript(process.env.DYISLAND_SMOKE_EVAL))); } catch (e) { console.log('SMOKE-EVAL-ERROR ' + e.message); } }   // test/main-tabs.js reads the real page
+      console.log('SMOKE-OK islands=' + islands.length + ' media=' + (media ? 'spawned' : 'none')); app.quit();
+    };
     for (const isl of islands) isl.win.webContents.once('did-finish-load', () => { if (++loaded >= islands.length) setTimeout(done, 3500); });
     setTimeout(() => { console.log('SMOKE-TIMEOUT'); app.exit(4); }, 25000);
   }
@@ -849,6 +858,7 @@ app.on('before-quit', () => {
   try { globalShortcut.unregisterAll(); } catch { /* ignore */ }
   if (notifyServer) notifyServer.stop();
   if (privWatch) privWatch.stop();
+  if (v3) v3.stop();
   if (fsProc) { try { fsProc.kill(); } catch { /* gone */ } }
   if (focusProc) { try { focusProc.kill(); } catch { /* gone */ } }
   sys.stop();

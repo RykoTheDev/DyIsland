@@ -1,7 +1,7 @@
 {
   "name": "dyisland",
   "productName": "DyIsland",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "DyIsland: a Material 3 Expressive dynamic island overlay for Windows",
   "author": {
     "name": "RykoTheDev"
@@ -44,8 +44,7 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "*.ps1",
-      "dns/*.ps1",
+      "**/*.ps1",
       "hook.js",
       "approve-hook.js",
       "agent-hook.js",

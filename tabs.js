@@ -7,6 +7,7 @@
     timer:     { label: 'Timer',     icon: '#i-timer' },
     usage:     { label: 'Usage',     icon: '#i-chart' },
     clipboard: { label: 'Clipboard', icon: '#i-clip' },
+    localsend: { label: 'Share',     icon: '#i-share' },
   };
 
   // Rebuilds the nav: the visible tabs in the saved order. (The settings button is separate: it sits outside the island.)

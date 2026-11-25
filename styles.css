@@ -129,10 +129,12 @@ svg.i:not([width]) { width: 24px; height: 24px; }   /* explicit width/height att
 }
 .bars { align-items: center; gap: 4px; height: 16px; }
 .bars b { width: 4px; height: 4px; border-radius: 2px; background: var(--md-sys-color-primary); }
-.bars.live b { animation: eq 900ms ease-in-out infinite alternate; }
-.bars.live b:nth-child(2) { animation-delay: -300ms; animation-duration: 700ms; }
-.bars.live b:nth-child(3) { animation-delay: -150ms; animation-duration: 1100ms; }
-.bars.live b:nth-child(4) { animation-delay: -450ms; animation-duration: 800ms; }
+.bars.live b { height: 10px; }                                  /* collapsed: a still level pattern, nothing loops while the island is closed */
+.bars.live b:nth-child(2) { height: 16px; } .bars.live b:nth-child(3) { height: 7px; } .bars.live b:nth-child(4) { height: 12px; }
+#wrap.open .bars.live b { animation: eq 900ms ease-in-out infinite alternate; }
+#wrap.open .bars.live b:nth-child(2) { animation-delay: -300ms; animation-duration: 700ms; }
+#wrap.open .bars.live b:nth-child(3) { animation-delay: -150ms; animation-duration: 1100ms; }
+#wrap.open .bars.live b:nth-child(4) { animation-delay: -450ms; animation-duration: 800ms; }
 @keyframes eq { from { height: 4px; } to { height: 16px; } }
 
 /* ---- Mascot: two cylinder eyes that replace the clock while the island idles ---- */
@@ -319,8 +321,13 @@ svg.i:not([width]) { width: 24px; height: 24px; }   /* explicit width/height att
 .btn:active { transform: scale(.92); border-radius: 12px; }
 
 /* ---- Weather ---- */
-#p-weather { display: grid; grid-template-columns: minmax(128px, .8fr) 1.4fr; gap: 16px; }
-.w-now { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
+#p-weather { display: grid; grid-template-columns: minmax(140px, .8fr) 1.4fr; gap: 8px; }
+.w-now { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: 0 12px; border-radius: var(--shape-lg); background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+.w-now .w-city { color: inherit; opacity: .85; }
+.w-now .label-medium { color: inherit; opacity: .85; }
+.w-now .w-hilo { font-variant-numeric: tabular-nums; font-weight: 650; }
+.w-now .w-hilo:empty { display: none; }
+.w-now .display-small { font-size: 40px; line-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .w-city {
   display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; height: 24px; padding: 0 8px 0 4px; margin-left: -4px;
   border-radius: 12px; font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant); max-width: 100%;
@@ -337,6 +344,10 @@ svg.i:not([width]) { width: 24px; height: 24px; }   /* explicit width/height att
 .w-hours { cursor: pointer; }
 .w-input { height: 32px; width: 100%; padding: 0 12px; border-radius: var(--shape-xs); border: 2px solid var(--md-sys-color-primary); background: transparent; outline: none; font: var(--md-sys-typescale-body-medium); user-select: text; }
 .w-big { display: flex; align-items: center; gap: 8px; }
+@container (max-height: 163px) { .w-now .display-small { font-size: 32px; line-height: 36px; } .w-now .w-hilo { display: none; } }
+#p-weather .w-stats .stat:nth-child(1) { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+#p-weather .w-stats .stat:nth-child(2) { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
+#p-weather .w-stats .stat .label-medium { color: inherit; opacity: .8; }
 .w-right { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; min-width: 0; }
 .w-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .stat { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 8px; border-radius: var(--shape-md); background: var(--md-sys-color-surface-container-highest); min-width: 0; }
@@ -551,37 +562,42 @@ svg.i:not([width]) { width: 24px; height: 24px; }   /* explicit width/height att
 @keyframes m-spin-quarter { to { rotate: 90deg; } }
 @media (prefers-reduced-motion: reduce) { .settings-fab { transition: none; } }
 
-/* ---- Quick actions tray: drops from the settings button, over the island's top-right corner (2 x 4 tiles) ---- */
+/* ---- Quick actions tray: a tonal panel of Android-style quick settings tiles (icon circle, label, state line). It hugs its tiles up to a maximum height, then scrolls with a soft fade at the edges ---- */
 .qtray {
-  position: absolute; top: 104px; right: -48px; width: 232px; padding: 8px; z-index: 5;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-radius: var(--shape-lg);
-  background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);
-  box-shadow: 0 0 0 2px var(--md-sys-color-outline-variant);
-  opacity: 0; scale: .9; transform-origin: 100% 0; pointer-events: none; visibility: hidden;
-  transition: opacity var(--d-fx) ease-out, scale var(--d-item) var(--ease-press), visibility 0s linear var(--d-fx);
+  position: absolute; top: 104px; right: -48px; width: 328px; max-height: 244px; padding: 8px; z-index: 5;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 56px; align-content: start; gap: 6px; border-radius: 28px;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: none; scroll-padding: 8px;
+  background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .28);
+  opacity: 0; scale: .88; transform-origin: 100% 0; pointer-events: none; visibility: hidden;
+  transition: opacity var(--d-fx) ease-out, scale var(--d-item) var(--spring), visibility 0s linear var(--d-fx);
 }
+.qtray.fade-bot { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); }
+.qtray.fade-top { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px); mask-image: linear-gradient(to bottom, transparent, #000 22px); }
+.qtray.fade-top.fade-bot { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 22px), transparent); }
 .qtray.show { opacity: 1; scale: 1; pointer-events: auto; visibility: visible; transition-delay: 0s; }
 .qtray[hidden] { display: none; }
 @supports (corner-shape: squircle) { .qtray, .qtile { corner-shape: squircle; } }
 .qtile {
-  height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; padding: 0 4px;
-  border-radius: var(--shape-md); background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);
-  transition: background-color var(--d-fx) ease-out, color var(--d-fx) ease-out, border-radius var(--d-item) var(--ease-press), transform var(--d-item) var(--ease-press);
+  height: 56px; min-width: 0; display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 0 10px 0 8px; text-align: left;
+  border-radius: 16px; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);
+  transition: background-color var(--d-fx) ease-out, color var(--d-fx) ease-out, border-radius var(--d-item) var(--spring), scale var(--d-item) var(--spring);
 }
-.qtile .ql { font: var(--md-sys-typescale-label-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.qtile:active { transform: scale(.94); border-radius: 12px; }
-.qtile[aria-checked="true"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: 12px; }
+.qic { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 16px; background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant); transition: background-color var(--d-fx) ease-out, color var(--d-fx) ease-out; }
+.qt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
+.qtile .ql { font: var(--md-sys-typescale-label-medium); font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qtile .qs { font: var(--md-sys-typescale-label-small); opacity: .72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qtile:hover { border-radius: 20px; }
+.qtile:active { scale: .95; border-radius: 14px; }
+.qtile[aria-checked="true"] { border-radius: 28px; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+.qtile[aria-checked="true"] .qic { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
 .qtile.armed { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
+.qtile[hidden] { display: none; }
 .settings-fab[data-dnd]::after { content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 999px; background: var(--dy-warn); }
 :root[data-motion="expressive"] .qtray.show .qtile { animation: m-pop 280ms var(--spring) backwards; animation-delay: calc(var(--k, 0) * 28ms); }
 .qtray .qtile:nth-child(1) { --k: 0; } .qtray .qtile:nth-child(2) { --k: 1; } .qtray .qtile:nth-child(3) { --k: 2; } .qtray .qtile:nth-child(4) { --k: 3; }
 .qtray .qtile:nth-child(5) { --k: 4; } .qtray .qtile:nth-child(6) { --k: 5; } .qtray .qtile:nth-child(7) { --k: 6; } .qtray .qtile:nth-child(8) { --k: 7; }
-@media (prefers-reduced-motion: reduce) { .qtray { transition: none; } }
-
-/* three columns: nine actions (with the DNS tile) fit in three short rows */
-.qtray { grid-template-columns: repeat(4, 1fr); width: 380px; gap: 6px; }
-.qtile { height: 56px; }
-.qtile[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .qtray, .qtile { transition: none; } }
 
 /* ---- Toast extras: a line that drains over the toast's lifetime, and "+N" when more are waiting ---- */
 .n-more { flex: none; margin-left: auto; padding: 0 8px; height: 20px; display: inline-grid; place-items: center; border-radius: 10px; background: var(--md-sys-color-surface-container-highest); }

@@ -3,6 +3,8 @@
 #         VOL <0-100> <0|1>          the master volume or mute changed
 #         BT <connected|gone> <name> a Bluetooth device connected / went away (only with -Bluetooth)
 #         NOTIF <base64 json>        a new Windows notification appeared: { app, title, body } (only with -Notifications, which is opt-in in Settings)
+#         PWR <0-100|255> <0|1>      battery percent (255 = unknown) and whether the charger is plugged in; on change (only with -Power, and only on a machine with a battery)
+#         LMB <0|1>                  the left mouse button went up / down (only with -Mouse; used to notice a file being dragged to the island, never logged)
 #   in:   VOLSET <0-100>             set the master volume
 #         VOLMUTE <0|1>              mute / unmute
 #         FGRESTORE                  give the keyboard focus back to the window that had it before DyIsland took it (see below)
@@ -12,7 +14,7 @@
 # calls (Bluetooth, notifications) are started and collected on later rounds, so FGRESTORE is answered within about 50 ms.
 # It reads and sets the system volume (Windows core audio, the same thing the volume keys change) and the foreground window. It starts, kills
 # and types nothing (except the one Ctrl+V of PASTE, which is opt-in), and never touches the network.
-param([int]$OwnPid = 0, [switch]$Bluetooth, [switch]$Notifications)
+param([int]$OwnPid = 0, [switch]$Bluetooth, [switch]$Notifications, [switch]$Power, [switch]$Mouse)
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
@@ -56,6 +58,15 @@ public static class DySys {
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  [StructLayout(LayoutKind.Sequential)] struct SPS { public byte AC; public byte Flag; public byte Pct; public byte Rsv; public uint Life; public uint Full; }
+  [DllImport("kernel32.dll")] static extern bool GetSystemPowerStatus(out SPS s);
+  [DllImport("user32.dll")] static extern short GetAsyncKeyState(int k);
+  public static bool Lmb() { return (GetAsyncKeyState(1) & 0x8000) != 0; }
+  public static bool Battery(out int pct, out bool ac) {
+    pct = 255; ac = true; SPS s; if (!GetSystemPowerStatus(out s)) return false;
+    if ((s.Flag & 128) != 0) return false;                                  // no battery in this machine
+    pct = s.Pct; ac = s.AC == 1; return true;
+  }
   static IntPtr saved = IntPtr.Zero;
   // Called every round: remembers the window that has the focus unless it is one of DyIsland's
   public static void Track(uint ownPid) {
@@ -83,7 +94,7 @@ public static class DySys {
 # stdin is read on a background task so the loop below can keep watching
 $stdin = New-Object System.IO.StreamReader([Console]::OpenStandardInput())
 $reader = $stdin.ReadLineAsync()
-$lastPct = -1; $lastMute = $false; $first = $true; $tick = 0
+$lastPct = -1; $lastMute = $false; $first = $true; $tick = 0; $lmb = $false; $pwrKey = ''
 $asTask = $null
 if ($Bluetooth -or $Notifications) {
   try {
@@ -175,6 +186,11 @@ while ($true) {
       if ($first) { [Console]::Out.WriteLine("VOLINIT $pct $([int]$mute)"); [Console]::Out.Flush(); $first = $false; $lastPct = $pct; $lastMute = $mute }
       elseif ($pct -ne $lastPct -or $mute -ne $lastMute) { $lastPct = $pct; $lastMute = $mute; [Console]::Out.WriteLine("VOL $pct $([int]$mute)"); [Console]::Out.Flush() }
     }
+  }
+  if ($Mouse) { $d = [DySys]::Lmb(); if ($d -ne $lmb) { $lmb = $d; [Console]::Out.WriteLine('LMB ' + [int]$d); [Console]::Out.Flush() } }
+  if ($Power -and $tick % 100 -eq 0) {                                   # about every 5 s
+    $bp = 0; $ba = $true
+    if ([DySys]::Battery([ref]$bp, [ref]$ba)) { $k = "$bp $([int]$ba)"; if ($k -ne $pwrKey) { $pwrKey = $k; [Console]::Out.WriteLine("PWR $k"); [Console]::Out.Flush() } }
   }
   if ($tick % 120 -eq 0) { [DySys]::Reopen() }                          # the default output device can change (headphones plugged in): look it up again now and then
   try {

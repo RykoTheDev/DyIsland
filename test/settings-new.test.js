@@ -6,7 +6,7 @@ const d = sanitize({});
 assert.deepStrictEqual(d.updates, { check: true });
 assert.deepStrictEqual(d.music, { artColors: true });
 assert.deepStrictEqual(d.hud, { volume: true });
-assert.deepStrictEqual(d.devices, { toasts: true });
+assert.deepStrictEqual(d.devices, { toasts: true, charger: true, battery: true, lowAt: 15 });
 assert.deepStrictEqual(d.meetings, { dnd: false }, 'call-aware Do not disturb is opt-in');
 assert.deepStrictEqual(d.notifications, { mirror: false, apps: '' }, 'mirroring Windows notifications is opt-in');
 assert.deepStrictEqual(d.events, { url: '' });
@@ -31,3 +31,27 @@ assert.strictEqual(sanitize({ size: { adaptive: 'no' } }).size.adaptive, true);
 assert.strictEqual(sanitize({ home: { first: 'events', second: 'music' } }).home.first, 'events');
 assert.strictEqual(sanitize({ home: { first: 'events', second: 'events' } }).home.second, 'none');
 console.log('PASS settings added this round: defaults, opt-ins off, calendar link rules, filters, types');
+
+// The Send and Shelf tabs survive sanitize (a store round trip), stay hidden while their feature is off and show once it is on.
+{
+  const { TAB_IDS } = require('../settingsStore.js');
+  assert.ok(TAB_IDS.includes('localsend') && !TAB_IDS.includes('shelf'), 'one merged Share tab, no shelf tab');
+  const off = sanitize({});
+  assert.ok(off.tabs.includes('localsend') && !off.tabs.includes('shelf'), 'ids are kept in the order');
+  assert.ok(off.hiddenTabs.includes('localsend') && !off.hiddenTabs.includes('shelf'), 'hidden by default');
+  const on = sanitize({ localsend: { enabled: true }, shelf: { enabled: true }, hiddenTabs: [] });
+  assert.deepStrictEqual(on.hiddenTabs.filter((t) => t === 'localsend'), [], 'shown when the features are on');
+  const sticky = sanitize({ shelf: { enabled: false }, hiddenTabs: [] });
+  assert.ok(sticky.hiddenTabs.includes('localsend'), 'both features off is hidden even if the list says otherwise');
+  assert.ok(!sanitize({ shelf: { enabled: true }, hiddenTabs: [] }).hiddenTabs.includes('localsend'), 'shelf alone keeps the Share tab visible');
+  assert.ok(!sanitize({ localsend: { enabled: true }, hiddenTabs: [] }).hiddenTabs.includes('localsend'), 'localsend alone keeps the Share tab visible');
+  const old = sanitize({ tabs: ['home', 'shelf', 'localsend', 'music'], hiddenTabs: ['localsend', 'clipboard'], shelf: { enabled: true } });
+  assert.ok(!old.tabs.includes('shelf') && !old.hiddenTabs.includes('shelf'), 'a stored shelf id is dropped');
+  assert.ok(!old.hiddenTabs.includes('localsend'), 'a user with a visible Shelf tab keeps the merged tab');
+  assert.ok(sanitize({ tabs: ['shelf'], hiddenTabs: ['shelf'] }).hiddenTabs.every((t) => t !== 'shelf'), 'a hidden shelf id is dropped silently');
+  assert.ok(!('battery' in sanitize({ battery: { warn: false } })), 'the unused battery.warn key is gone');
+  const rt = sanitize(JSON.parse(JSON.stringify(on)));
+  assert.deepStrictEqual(rt.tabs, on.tabs); assert.deepStrictEqual(rt.hiddenTabs, on.hiddenTabs);
+  assert.deepStrictEqual(sanitize({}).devices, { toasts: true, charger: true, battery: true, lowAt: 15 });
+  assert.strictEqual(sanitize({ devices: { lowAt: 999 } }).devices.lowAt, 50);
+}

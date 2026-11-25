@@ -15,7 +15,7 @@ const out = []; const ok = (n) => out.push('PASS ' + n);
   assert.deepStrictEqual(s.size.open, { w: DEFAULTS.size.open.w, h: 301 });
   assert.strictEqual(s.theme.mode, 'auto'); assert.strictEqual(s.theme.seed, DEFAULTS.theme.seed); assert.strictEqual(s.theme.variant, 'vibrant');
   assert.deepStrictEqual(s.tabs.slice(0, 2), ['usage', 'home']); assert.strictEqual(new Set(s.tabs).size, s.tabs.length); assert.ok(s.tabs.includes('clipboard'));
-  assert.deepStrictEqual(s.hiddenTabs, ['timer', 'clipboard']);
+  assert.deepStrictEqual(s.hiddenTabs, ['timer', 'clipboard', 'localsend']);
   assert.strictEqual(s.hotkey, DEFAULTS.hotkey); assert.strictEqual(s.units.temp, 'c'); assert.strictEqual(s.mascot.delay, 120); assert.strictEqual(s.autoHide, false);
   ok('sanitize clamps sizes, rejects bad enums/colours/hotkeys, dedupes tabs, appends missing tabs');
 }

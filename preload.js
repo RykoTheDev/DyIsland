@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // Named islandAPI (not "island") so it never collides with page-level variables.
 const on = (channel, cb) => ipcRenderer.on(channel, (_e, ...args) => cb(...args));
@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld('islandAPI', {
   appIcons: () => ipcRenderer.invoke('apps:icons'),                          // data URLs of the icons of the App shortcuts, in order
   openApp: (i) => ipcRenderer.send('apps:open', Number(i)),                  // opens the i-th shortcut from the saved list (the page never sends a path)
   pickApp: () => ipcRenderer.invoke('apps:pick'),                            // the file picker; the chosen program is added to the list
-  quick: (k) => ipcRenderer.send('quick:run', String(k || '')),                     // a fixed list of actions (screenshot, lock, night light, calculator): main decides what each one does
+  quick: (k) => ipcRenderer.send('quick:run', String(k || '')),                     // a fixed list of actions (lock): main decides what each one does
   // environment
   onNear: (cb) => on('env:near', (v) => cb(!!v)),                   // pointer is at the top centre (auto-hide)
   mascotWatch: (v) => ipcRenderer.send('mascot:watch', !!v),        // ask for pointer direction updates
@@ -95,4 +95,43 @@ contextBridge.exposeInMainWorld('islandAPI', {
   limits: () => ipcRenderer.invoke('limits:get'),
   onNotice: (cb) => on('notice:show', cb),
   onWorking: (cb) => on('working:state', cb),
+  // ---- 3.0 (see IPC_CONTRACT.md)
+  pathForFile: (file) => { try { return String(webUtils.getPathForFile(file) || ''); } catch { return ''; } },   // the real path of a dropped File ('' if it has none)
+  localsendDevices: () => ipcRenderer.invoke('localsend:devices'),
+  onLocalsendDevices: (cb) => on('localsend:devices', cb),
+  localsendSend: (deviceId, paths) => ipcRenderer.invoke('localsend:send', String(deviceId || ''), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string').slice(0, 5000) : []),
+  onLocalsendProgress: (cb) => on('localsend:progress', cb),
+  localsendCancel: (sessionId) => ipcRenderer.send('localsend:cancel', String(sessionId || '')),
+  onLocalsendIncoming: (cb) => on('localsend:incoming', cb),
+  onLocalsendIncomingClosed: (cb) => on('localsend:incoming-closed', cb),
+  localsendRespond: (id, accept) => ipcRenderer.send('localsend:respond', String(id || ''), accept === true),
+  onLocalsendReceived: (cb) => on('localsend:received', cb),
+  localsendStatus: () => ipcRenderer.invoke('localsend:status'),
+  localsendOpenFolder: () => ipcRenderer.send('localsend:open-folder'),
+  onDropArmed: (cb) => on('drop:armed', (v) => cb(!!v)),
+  shelfList: () => ipcRenderer.invoke('shelf:list'),
+  shelfAdd: (paths) => ipcRenderer.invoke('shelf:add', Array.isArray(paths) ? paths.filter((p) => typeof p === 'string').slice(0, 200) : []),
+  shelfRemove: (id) => ipcRenderer.invoke('shelf:remove', String(id || '')),
+  shelfClear: () => ipcRenderer.invoke('shelf:clear'),
+  shelfDragOut: (id) => ipcRenderer.send('shelf:dragout', String(id || '')),
+  onShelf: (cb) => on('shelf:list', cb),
+  capturesList: () => ipcRenderer.invoke('captures:list'),
+  onCaptures: (cb) => on('captures:list', cb),
+  onCaptureNew: (cb) => on('captures:new', cb),
+  captureDragOut: (id) => ipcRenderer.send('captures:dragout', String(id || '')),
+  captureToShelf: (id) => ipcRenderer.invoke('captures:to-shelf', String(id || '')),
+  captureDismiss: (id) => ipcRenderer.invoke('captures:dismiss', String(id || '')),
+  downloadsList: () => ipcRenderer.invoke('downloads:list'),
+  onDownloads: (cb) => on('downloads:update', cb),
+  networkStatus: () => ipcRenderer.invoke('network:status'),
+  onNetwork: (cb) => on('network:status', cb),
+  onNoteOpen: (cb) => on('note:open', () => cb()),
+  noteAdd: (text) => ipcRenderer.invoke('note:add', String(text == null ? '' : text).slice(0, 2000)),
+  noteOpenFile: () => ipcRenderer.send('note:open-file'),
+  urlOpen: (url) => ipcRenderer.invoke('url:open', String(url || '')),
+  urlShorten: (url) => ipcRenderer.invoke('url:shorten', String(url || '')),
+  mixerList: () => ipcRenderer.invoke('mixer:list'),
+  mixerSet: (pid, volume, mute) => ipcRenderer.invoke('mixer:set', Number(pid), volume == null ? null : Number(volume), typeof mute === 'boolean' ? mute : null),
+  onFocusMode: (cb) => on('focus:state', cb),
+  clipboardSearch: (q) => ipcRenderer.invoke('clipboard:search', String(q == null ? '' : q).slice(0, 200)),
 });

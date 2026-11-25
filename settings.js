@@ -67,8 +67,9 @@
     const el = e.target.closest('[data-bind]'); if (!el) return;
     if (el.matches('input[type="checkbox"]')) {
       const patch = patchOf(el.dataset.bind, el.checked);
-      if (el.dataset.bind === 'clipboard.enabled' && S) {                           // the Clipboard tab follows the feature on and off
-        const hidden = new Set(S.hiddenTabs); if (el.checked) hidden.delete('clipboard'); else hidden.add('clipboard');
+      const follows = Object.keys(TAB_FEATURE).find((t) => TAB_FEATURE[t].includes(el.dataset.bind));
+      if (follows && S) {                                                            // the Clipboard / Share tab follows its feature on and off
+        const hidden = new Set(S.hiddenTabs); if (el.checked || TAB_FEATURE[follows].some((p) => p !== el.dataset.bind && featOn(S, p))) hidden.delete(follows); else hidden.add(follows);
         patch.hiddenTabs = [...hidden];
       }
       send(patch);
@@ -136,7 +137,10 @@
   });
 
   // ---------------------------------------------------------------- tabs: drag to reorder, arrows, on/off
-  const TAB_META = { home: ['Home', 'i-home'], music: ['Music', 'i-music'], weather: ['Weather', 'i-cloud'], timer: ['Timer', 'i-timer'], usage: ['Usage', 'i-chart'], clipboard: ['Clipboard', 'i-clip'] };
+  const TAB_META = { home: ['Home', 'i-home'], music: ['Music', 'i-music'], weather: ['Weather', 'i-cloud'], timer: ['Timer', 'i-timer'], usage: ['Usage', 'i-chart'], clipboard: ['Clipboard', 'i-clip'], localsend: ['Share', 'i-share'] };
+  const TAB_FEATURE = { clipboard: ['clipboard.enabled'], localsend: ['localsend.enabled', 'shelf.enabled'] };   // a tab that follows a feature switch
+  const featOn = (s, path) => !!path.split('.').reduce((o, k) => (o ? o[k] : undefined), s);
+  const tabFeatOn = (s, id) => TAB_FEATURE[id].some((p) => featOn(s, p));      // the Share tab follows LocalSend or the shelf
   const list = $('#tabList');
   function commitOrder() {
     const order = $$('.tab-row', list).map((r) => r.dataset.id);
@@ -147,9 +151,10 @@
     if (list.querySelector('.dragging')) return;                                     // do not rebuild under the user's hand
     const f = document.activeElement, keep = f && list.contains(f) ? { id: f.closest('.tab-row').dataset.id, move: f.dataset.move, cb: f.matches('input') } : null;
     list.replaceChildren(...s.tabs.map((id, i) => {
+      if (!TAB_META[id]) return document.createComment('');
       const [name, icon] = TAB_META[id];
       const on = !s.hiddenTabs.includes(id);
-      const locked = id === 'clipboard' && !s.clipboard.enabled;                    // switched on under Everyday
+      const locked = !!TAB_FEATURE[id] && !tabFeatOn(s, id);                // switched on under Apps
       const li = document.createElement('li'); li.className = 'tab-row' + (on ? '' : ' off') + (locked ? ' locked' : ''); li.dataset.id = id; li.draggable = true;
       li.innerHTML = `
         <span class="tab-grip" aria-hidden="true"><svg width="24" height="24"><use href="#i-drag"/></svg></span>
@@ -157,7 +162,7 @@
         <span class="tab-name">${name}</span>
         <button class="mini-btn sl" data-move="-1" aria-label="Move ${name} up" ${i === 0 ? 'disabled' : ''}><svg width="20" height="20"><use href="#i-up"/></svg></button>
         <button class="mini-btn sl" data-move="1" aria-label="Move ${name} down" ${i === s.tabs.length - 1 ? 'disabled' : ''}><svg width="20" height="20"><use href="#i-down"/></svg></button>
-        <label class="switch"><input type="checkbox" ${on ? 'checked' : ''} ${locked ? 'disabled title="Turn on clipboard history under Everyday first"' : ''} aria-label="Show ${name}"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></label>`;
+        <label class="switch"><input type="checkbox" ${on ? 'checked' : ''} ${locked ? 'disabled title="Turn the feature on under Apps first"' : ''} aria-label="Show ${name}"><i><svg width="16" height="16"><use href="#i-check"/></svg></i></label>`;
       return li;
     }));
     if (keep) {                                                                       // a rebuild must not drop keyboard focus
@@ -242,7 +247,7 @@
     ['appearance', 'Look', ['g-look', 'g-display']],
     ['layout', 'Layout', ['g-pos', 'g-size', 'g-home', 'g-tabs']],
     ['alerts', 'Alerts', ['g-alerts']],
-    ['apps', 'Apps', ['g-claude', 'g-agents', 'g-google', 'g-dnsp', 'g-dns', 'g-clip', 'g-clip2']],
+    ['apps', 'Apps', ['g-claude', 'g-agents', 'g-google', 'g-dnsp', 'g-dns', 'g-clip', 'g-clip2', 'g-share', 'g-capture', 'g-netfocus', 'g-notes']],
     ['system', 'System', ['g-keys', 'g-region', 'g-check', 'g-backup']],
   ];
   let activeStab = 'appearance';
@@ -309,6 +314,10 @@
     'g-alerts': ['quiet', 'usage', 'battery'],
     'g-keys': ['hotkey', 'settingsHotkey'],
     'g-clip': ['clipboard'],
+    'g-share': ['drop', 'localsend', 'shelf'],
+    'g-capture': ['captures', 'downloads'],
+    'g-netfocus': ['network', 'mixer', 'focus'],
+    'g-notes': ['notes', 'urltools'],
     'g-region': ['units', 'calendar'],
     'g-claude': ['approvals', 'agents'],
     'g-dns': ['dns'],
@@ -322,7 +331,7 @@
       clearTimeout(timer); b.classList.remove('confirm'); b.textContent = 'Reset';
       const defaults = await Promise.resolve(api.settingsDefaults());
       const patch = {}; for (const k of keys) if (defaults && k in defaults) patch[k] = defaults[k];
-      if (patch.hiddenTabs && S && S.clipboard.enabled) patch.hiddenTabs = patch.hiddenTabs.filter((t) => t !== 'clipboard');   // the Clipboard tab follows the feature
+      if (patch.hiddenTabs && S) patch.hiddenTabs = patch.hiddenTabs.filter((t) => !(TAB_FEATURE[t] && tabFeatOn(S, t)));   // a tab follows its feature
       send(patch);
     });
     h.appendChild(b);

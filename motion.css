@@ -104,10 +104,10 @@
 :root[data-motion="expressive"] #wrap.open #p-weather.active #w-icon { animation: m-float 3.6s ease-in-out 700ms infinite; }
 
 /* ---- Music ---- */
-:root[data-motion="expressive"] #wrap[data-mode="media"] #m-img { animation: m-ken 9s ease-in-out infinite alternate; }
+:root[data-motion="expressive"] #wrap.open[data-mode="media"] #m-img { animation: m-ken 9s ease-in-out infinite alternate; }
 :root[data-motion="expressive"] .m-text.txt-swap > * { animation: m-text-in 380ms var(--spring) backwards; }
 :root[data-motion="expressive"] .m-text.txt-swap > :nth-child(2) { animation-delay: 60ms; }
-:root[data-motion="expressive"] #wrap[data-mode="media"] .btn.filled[data-playing="true"] { animation: m-pulse 2.4s ease-in-out infinite; }
+:root[data-motion="expressive"] #wrap.open[data-mode="media"] .btn.filled[data-playing="true"] { animation: m-pulse 2.4s ease-in-out infinite; }
 
 /* ---- Timer ---- */
 :root[data-motion="expressive"] #p-timer:has(#t-start[data-running="true"]) .ring { animation: m-ring-pulse 2s ease-in-out infinite; }
@@ -152,3 +152,85 @@
 :root[data-motion="expressive"] #wrap.open #island,
 :root[data-motion="expressive"] #wrap.has-notice #island { transition: border-radius var(--d-open) var(--ease-open), scale var(--d-item) var(--ease-press); }
 :root[data-motion="expressive"] #wrap:not(.open):not(.has-notice):not(.autohidden) #island:active { scale: .94 .86; }
+
+/* ======================================================================
+   Material 3 Expressive pass (docs/design-reference.md)
+   Shape morphs (clip-path polygons, 96 vertices each, set on :root by app.js), neighbour-reacting press squish,
+   floating toolbar nav, variable-font axes, Home hero. Nothing here loops while the island is collapsed.
+   ====================================================================== */
+:root {
+  --poly-circle: circle(50%); --poly-pill: circle(50%); --poly-squircle: inset(0 round 28%); --poly-cookie: circle(50%); --poly-burst: circle(50%);   /* fallbacks until app.js writes the polygons */
+  --spring-spatial: var(--d-item) var(--spring);          /* size, position, shape: may overshoot */
+  --spring-effects: var(--d-fx) ease-out;                  /* colour, opacity: never overshoots */
+}
+
+/* ---- shape morphs: only on elements that hold an icon or art, never on text ---- */
+.btn.filled { clip-path: var(--poly-pill); transition: clip-path var(--d-item) var(--spring-soft), transform var(--d-item) var(--ease-press), border-radius var(--d-item) var(--ease-press); }
+.btn.filled[data-playing="true"] { clip-path: var(--poly-squircle); }
+.qic { clip-path: var(--poly-circle); transition: clip-path var(--d-item) var(--spring-soft), background-color var(--d-fx) ease-out, color var(--d-fx) ease-out; }
+.qtile[aria-checked="true"] .qic { clip-path: var(--poly-cookie); }
+.hc .tile { clip-path: var(--poly-squircle); transition: clip-path var(--d-item) var(--spring-soft); }
+.hc:hover .tile, .hc:focus-visible .tile { clip-path: var(--poly-cookie); }
+.hc-wx .tile { clip-path: var(--poly-circle); }
+.hc-wx:hover .tile { clip-path: var(--poly-burst); }
+.ldr { clip-path: var(--poly-circle); border-radius: 0; }
+:root[data-motion="expressive"] #wrap.open .stchip[data-kind="work"] .ldr { animation: dy-ldr2 2.4s linear infinite; }
+@keyframes dy-ldr2 {
+  0%   { clip-path: var(--poly-circle);   rotate: 0deg; }
+  25%  { clip-path: var(--poly-cookie);   rotate: 90deg; }
+  50%  { clip-path: var(--poly-squircle); rotate: 180deg; }
+  75%  { clip-path: var(--poly-burst);    rotate: 270deg; }
+  100% { clip-path: var(--poly-circle);   rotate: 360deg; }
+}
+
+/* ---- neighbour-reacting press: the pressed item swells, its neighbours give way (scale only, so no layout cost) ---- */
+.nav button:not([aria-selected="true"]):active { flex-grow: 1.5; }
+.nav button:not([aria-selected="true"]):has(+ button:active), .nav button:not([aria-selected="true"]):active + button:not([aria-selected="true"]) { flex-grow: .8; }
+.nav button[aria-selected="true"]:has(+ button:active), .nav button:active + button[aria-selected="true"] { flex-grow: 2.1; }
+.m-ctrl .btn, .t-ctrl > *, .chips .chip, .t-slots button { transition-property: transform, scale, border-radius, clip-path, flex-grow, background-color, color, border-color; transition-duration: var(--d-item); transition-timing-function: var(--spring); }
+.m-ctrl .btn:has(+ .btn:active), .m-ctrl .btn:active + .btn,
+.t-ctrl > :has(+ :active), .t-ctrl > :active + *,
+.chips .chip:has(+ .chip:active), .chips .chip:active + .chip,
+.t-slots button:has(+ button:active), .t-slots button:active + button { scale: .9; }
+.m-ctrl .btn:active, .t-ctrl > :active, .chips .chip:active, .t-slots button:active { scale: 1.06; }
+.chip[aria-pressed="true"] { border-radius: 16px; }
+
+/* ---- floating toolbar nav: an inset tonal capsule, the selected tab is a primary pill inside it (same 40px as before) ---- */
+.nav { padding: 3px; gap: 2px; border-radius: 20px; background: var(--md-sys-color-surface-container-high); }
+.nav button { height: 34px; background: transparent; border-radius: 17px; }
+.nav button:hover:not([aria-selected="true"]) { background: color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent); }
+.nav button[aria-selected="true"] { border-radius: 17px; }
+.nav button:active { border-radius: 10px; }
+
+/* ---- variable font axes: weight and roundness move with state ---- */
+.h-time .display-large, .ring-t { transition: font-variation-settings var(--d-item) var(--spring-soft); }
+.ring-t { font-variation-settings: "wght" 560, "ROND" 100; }
+#p-timer:has(#t-start[data-running="true"]) .ring-t { font-variation-settings: "wght" 900, "ROND" 100; }
+.h-time .display-large { font-variation-settings: "wght" 800, "ROND" 100; }
+#p-home:hover .h-time .display-large { font-variation-settings: "wght" 950, "ROND" 100; }
+.w-now .display-small { transition: font-variation-settings var(--d-item) var(--spring-soft); font-variation-settings: "wght" 600, "ROND" 100; }
+#p-weather:hover .w-now .display-small { font-variation-settings: "wght" 900, "ROND" 100; }
+
+/* ---- Home: a bold time hero, then evenly sized cards with different shapes (one per kind) ---- */
+.h-cards { gap: 6px; }
+.hc { border-radius: 28px; }
+.hc-wx { border-radius: 28px 12px 28px 12px; }
+.hc-mu { border-radius: 12px 28px 12px 28px; }
+.hc-ev { border-radius: 28px; }
+.hc-cd { border-radius: 12px 28px 28px 12px; }
+.hc-mail { border-radius: 28px 28px 12px 28px; }
+.hc-apps { border-radius: 20px; }
+@supports (corner-shape: squircle) { .hc { corner-shape: squircle; } }
+.hc:hover { border-radius: 20px; }
+.hc:active { scale: .97; transform: none; }
+.hc .title-medium { font-weight: 750; }
+.h-date { font-weight: 650; }
+
+/* ---- nothing loops while the island is collapsed (paused animations cost nothing) ---- */
+#wrap:not(.open) :is(.ldr, .chip-bar i, .stchip[data-kind="approve"], .priv i, .spin, .spin circle, .fc-bar.ind i, .u-pace, .ring, #m-img) { animation-play-state: paused !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn.filled, .qic, .hc .tile, .nav button { transition: none; }
+  .ldr { animation: none !important; }
+  .h-time .display-large, .ring-t, .w-now .display-small { transition: none; }
+}

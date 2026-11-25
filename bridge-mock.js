@@ -38,9 +38,9 @@ if (!window.islandAPI) {
     motion: 'expressive', placement: { edge: 'top', monitor: 'primary' }, dns: { tile: true }, quiet: { dnd: false, mute: false }, settingsHotkey: '', openOn: 'click', autoHide: false, hideInFullscreen: true,
     theme: { mode: 'auto', variant: 'vibrant', seed: '#1FB5A5', preset: 'teal' },
     size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 }, adaptive: true },
-    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard'], hiddenTabs: ['clipboard'],
+    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard', 'localsend'], hiddenTabs: ['clipboard', 'localsend'],
     mascot: { enabled: true, delay: 8 }, hotkey: 'Control+Alt+Space', clipboard: { enabled: false, max: 12, images: false, paste: false, persistPins: false },
-    battery: { warn: true }, units: { temp: 'c', clock: 'auto' }, calendar: { weekStart: 'auto' }, usage: { forecast: true, resetAlert: true }, approvals: { enabled: true, wait: 30 }, agents: { quietAlert: false }, split: { enabled: true, lead: 'auto' }, privacy: { dot: true }, music: { artColors: true }, shortcuts: { apps: [{ name: 'Notepad', path: 'C:\\Windows\\notepad.exe' }, { name: 'Calculator', path: 'C:\\Windows\\System32\\calc.exe' }] }, dnsp: { presets: [], custom: [] }, google: { clientId: '', clientSecret: '', calendar: true, tasks: true, mail: true, mailToast: true }, events: { url: '' }, notifications: { mirror: false, apps: '' }, hud: { volume: true }, devices: { toasts: true }, meetings: { dnd: false }, updates: { check: true }, home: { calendar: true, side: 'left', first: 'weather', second: 'music', countdown: { label: '', date: '' } },
+    battery: { warn: true }, units: { temp: 'c', clock: 'auto' }, calendar: { weekStart: 'auto' }, usage: { forecast: true, resetAlert: true }, approvals: { enabled: true, wait: 30 }, agents: { quietAlert: false }, split: { enabled: true, lead: 'auto' }, privacy: { dot: true }, music: { artColors: true }, shortcuts: { apps: [{ name: 'Notepad', path: 'C:\\Windows\\notepad.exe' }, { name: 'Calculator', path: 'C:\\Windows\\System32\\calc.exe' }] }, dnsp: { presets: [], custom: [] }, google: { clientId: '', clientSecret: '', calendar: true, tasks: true, mail: true, mailToast: true }, events: { url: '' }, notifications: { mirror: false, apps: '' }, hud: { volume: true }, devices: { toasts: true, charger: true, battery: true, lowAt: 15 }, localsend: { enabled: false, receive: false, alias: '', saveDir: '', autoAccept: false }, drop: { enabled: true }, shelf: { enabled: true, max: 12 }, captures: { enabled: false }, downloads: { enabled: false }, network: { enabled: false, host: '1.1.1.1', vpnAlerts: true }, focus: { sync: false }, notes: { enabled: false, hotkey: 'Control+Alt+N', file: '' }, urltools: { enabled: true, shorten: false }, mixer: { enabled: false }, meetings: { dnd: false }, updates: { check: true }, home: { calendar: true, side: 'left', first: 'weather', second: 'music', countdown: { label: '', date: '' } },
   };
   const qs = new URLSearchParams(location.search);
   let settings = DEFAULT_SETTINGS;
@@ -53,7 +53,35 @@ if (!window.islandAPI) {
     { id: 1, kind: 'text', text: 'npm run build:theme', pinned: true }, { id: 2, kind: 'image', thumb: TINY, pinned: false },
     { id: 3, kind: 'text', text: 'https://example.com/a/long/link/that/keeps/going', pinned: false }, { id: 4, kind: 'text', text: 'Meeting moved to 15:30', pinned: false }, { id: 5, kind: 'text', text: 'Ctrl+Alt+Space', pinned: false }] : [];
 
+  const clipCbs = [];
+  window.__mixer = (l) => { mixer = l; };
+  const nDev = Number(qs.get('ls') || 0);
+  let lsDevices = [{ id: 'd1', alias: 'Pixel 8', deviceModel: 'Pixel 8', deviceType: 'mobile' }, { id: 'd2', alias: 'Studio PC', deviceModel: 'Windows', deviceType: 'desktop' }, { id: 'd3', alias: 'Browser tab', deviceModel: 'Chrome', deviceType: 'web' }].slice(0, nDev);
+  let shelf = qs.get('shelf') ? [{ id: 1, name: 'invoice-nov.pdf', path: 'C:\f\invoice-nov.pdf', size: 482113, isDir: false, addedAt: 1, missing: false }, { id: 2, name: 'Assets', path: 'C:\f\Assets', size: 0, isDir: true, addedAt: 2, missing: false }] : [];
+  let netState = { online: true, ip: '192.168.1.42', vpn: !!qs.get('vpn'), vpnName: qs.get('vpn') ? 'WireGuard' : '', pingMs: 23, host: '1.1.1.1' };
+  let mixer = qs.get('mixer') ? [{ pid: 101, name: 'Spotify', volume: 62, mute: false }, { pid: 202, name: 'Chrome', volume: 100, mute: false }, { pid: 303, name: 'Discord', volume: 35, mute: true }] : [];
   window.islandAPI = {
+    // ---- 3.0 features (preview). ?ls=0|1|2|3 fake LocalSend devices, ?shelf=1 two parked files, ?net=1, ?mixer=1. Hooks: window.__drop(bool), __lsDevices(list), __lsProgress(p), __lsIncoming(m), __lsReceived(p),
+    // __shelf(list), __captureNew(c), __downloads(list), __network(n), __noteOpen(), __focus({system}), __clip(list). Calls are recorded in window.__lsSent, __lsAnswered, __shelfAdded, __mixerSet, __notes ...
+    pathForFile(f) { return f && (f.path || f.name) ? 'C:/Users/me/' + (f.name || 'file.bin') : ''; },
+    onDropArmed(cb) { window.__drop = cb; },
+    async localsendDevices() { return lsDevices; }, onLocalsendDevices(cb) { window.__lsDevices = (l) => { lsDevices = l; cb(l); }; },
+    async localsendSend(id, paths) { (window.__lsSent = window.__lsSent || []).push([id, paths]); return window.__lsSendResult || { ok: true, sessionId: 's' + (window.__lsSent.length) }; },
+    onLocalsendProgress(cb) { window.__lsProgress = cb; }, async localsendCancel(sid) { (window.__lsCancelled = window.__lsCancelled || []).push(sid); return true; },
+    onLocalsendIncoming(cb) { window.__lsIncoming = cb; }, async localsendRespond(id, ok) { (window.__lsAnswered = window.__lsAnswered || []).push([id, ok]); return true; },
+    onLocalsendReceived(cb) { window.__lsReceived = cb; }, async localsendStatus() { return { running: true, port: 53317, receiving: !!settings.localsend.receive }; }, async localsendOpenFolder() { window.__lsFolder = true; return true; },
+    async shelfList() { return shelf; }, onShelf(cb) { window.__shelf = (l) => { shelf = l; cb(l); }; },
+    async shelfAdd(paths) { (window.__shelfAdded = window.__shelfAdded || []).push(paths); shelf = [...shelf, ...paths.map((p, i) => ({ id: Date.now() + i, name: String(p).split(/[\/]/).pop(), path: p, size: 12345, isDir: false, addedAt: Date.now(), missing: false }))]; if (window.__shelf) window.__shelf(shelf); return shelf; },
+    async shelfRemove(id) { shelf = shelf.filter((x) => x.id !== id); if (window.__shelf) window.__shelf(shelf); return shelf; }, async shelfClear() { shelf = []; if (window.__shelf) window.__shelf(shelf); return shelf; },
+    shelfDragOut(id) { (window.__shelfDrag = window.__shelfDrag || []).push(id); },
+    async capturesList() { return []; }, onCaptures() {}, onCaptureNew(cb) { window.__captureNew = cb; }, captureDragOut(id) { window.__capDrag = id; }, async captureToShelf(id) { window.__capShelf = id; return true; }, async captureDismiss(id) { window.__capDismiss = id; return true; },
+    async captureStart(kind) { (window.__capStart = window.__capStart || []).push(kind); return { ok: true }; },
+    async downloadsList() { return []; }, onDownloads(cb) { window.__downloads = cb; },
+    async networkStatus() { return netState; }, onNetwork(cb) { window.__network = (n) => { netState = n; cb(n); }; },
+    onNoteOpen(cb) { window.__noteOpen = cb; }, async noteAdd(text) { (window.__notes = window.__notes || []).push(text); return window.__noteResult || { ok: true, file: 'C:\Users\me\notes.md' }; }, async noteOpenFile() { window.__noteFile = true; return true; },
+    onFocusMode(cb) { window.__focus = cb; }, async urlOpen(u) { (window.__urlOpened = window.__urlOpened || []).push(u); return true; }, async urlShorten(u) { window.__shortened = u; return window.__shortenResult || { ok: true, url: 'https://is.gd/abc123' }; },
+    async mixerList() { window.__mixer = (l) => { mixer = l; }; return mixer; }, async mixerSet(pid, volume, mute) { (window.__mixerSet = window.__mixerSet || []).push([pid, volume, mute]); mixer = mixer.map((a) => (a.pid === pid ? { ...a, volume: volume == null ? a.volume : volume, mute: mute == null ? a.mute : !!mute } : a)); return true; },
+    async clipboardSearch(q) { return clipItems.filter((x) => x.kind === 'text' && x.text.toLowerCase().includes(String(q).toLowerCase())); },
     capture() {}, input(v) { window.__input = v; }, reportSize(sz) { window.__size = sz; },
     onVolume(cb) { window.__volume = cb; },
     // Preview only: ?events=1 shows a few events; window.__events({ list, status }) drives it. window.__opened collects the ids opened.
@@ -76,7 +104,7 @@ if (!window.islandAPI) {
     onHotkey(cb) { window.__hotkey = cb; },
     hotkeyStatus: async () => ({ accelerator: settings.hotkey, ok: true }), onHotkeyStatus() {},
     setKeepAwake: async (v) => !!v,
-    clipboardList: async () => clipItems, onClipboard(cb) { window.__clip = cb; },
+    clipboardList: async () => clipItems, onClipboard(cb) { clipCbs.push(cb); window.__clip = (l) => clipCbs.forEach((f) => f(l)); },
     clipboardCopy: async (id) => { window.__copied = id; return true; }, clipboardPaste: async (id) => { window.__pasted = id; return true; },
     clipboardPin: async (id) => { clipItems = clipItems.map((x) => (x.id === id ? { ...x, pinned: !x.pinned } : x)); clipItems = [...clipItems.filter((x) => x.pinned), ...clipItems.filter((x) => !x.pinned)]; if (window.__clip) window.__clip(clipItems); return true; },
     clipboardClear: async () => { clipItems = clipItems.filter((x) => x.pinned); if (window.__clip) window.__clip(clipItems); return true; },

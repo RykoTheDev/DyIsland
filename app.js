@@ -14,7 +14,7 @@
     motion: 'expressive', placement: { edge: 'top', monitor: 'primary' }, dns: { tile: true }, quiet: { dnd: false, mute: false }, openOn: 'click', autoHide: false, hideInFullscreen: true,
     theme: { mode: 'auto', variant: 'vibrant', seed: '#1FB5A5', preset: 'teal' },
     size: { idle: { w: 148, h: 32 }, open: { w: 520, h: 264 } },
-    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard'], hiddenTabs: ['clipboard'],
+    tabs: ['home', 'music', 'weather', 'timer', 'usage', 'clipboard', 'localsend'], hiddenTabs: ['clipboard', 'localsend'],
     mascot: { enabled: true, delay: 8 }, clipboard: { enabled: false, max: 12 }, battery: { warn: true },
     units: { temp: 'c', clock: 'auto' }, calendar: { weekStart: 'auto' }, usage: { forecast: true, resetAlert: true }, approvals: { enabled: true, wait: 30 }, agents: { quietAlert: false }, split: { enabled: true, lead: 'auto' },
     privacy: { dot: true },
@@ -117,17 +117,19 @@
   }, { passive: true });
 
   // ---------------------------------------------------------------- pages
+  const EXTRA_PAGES = ['approve', 'network', 'mixer'];            // pages that are not tabs: they open from a card, a tray tile or an alert
   function go(name) {
     const vis = visibleTabs();
-    if (name !== 'approve' && !vis.includes(name)) name = vis[0] || 'home';        // a tab you switched off in Settings can never be opened (the approval card is not a tab)
-    { const order = [...visibleTabs(), 'approve'], from = order.indexOf(wrap.dataset.page), to = order.indexOf(name); wrap.dataset.dir = from >= 0 && to >= 0 && to < from ? 'back' : 'fwd'; }   // pages slide the way you travelled
+    if (!EXTRA_PAGES.includes(name) && !vis.includes(name)) name = vis[0] || 'home';        // a tab you switched off in Settings can never be opened (the approval card is not a tab)
+    { const order = [...visibleTabs(), ...EXTRA_PAGES], from = order.indexOf(wrap.dataset.page), to = order.indexOf(name); wrap.dataset.dir = from >= 0 && to >= 0 && to < from ? 'back' : 'fwd'; }   // pages slide the way you travelled
     if (name === 'approve') apprLockUntil = Date.now() + 500;                       // a click meant for the page you just left must not answer a request
     $$('.page').forEach((p) => p.classList.toggle('active', p.dataset.page === name));
     $$('.nav [data-tab-btn]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.go === name)));
     wrap.dataset.page = name;
     applyPageSize();
     animatePage($('#p-' + name));
-    if (name === 'usage') { const b = $('#u-big'); if (b) b.dataset.v = '0'; loadUsage(); }       // the percentage counts up each time you arrive
+    if (name === 'usage') { const b = $('#u-big'); if (b) b.dataset.v = '0'; loadUsage(); }
+    if (window.DyFeat) window.DyFeat.onPage(name);       // the percentage counts up each time you arrive
   }
   // The Home cards fly their icon or cover into the page they open (View Transitions API: the cover really travels, instead of two pages cross-fading).
   // The browser puts a screenshot layer over the page while it runs, so mouse-leave is ignored until it ends (vtActive).
@@ -538,12 +540,17 @@
     api.media('seek', f * m.dur);
     mediaState.pos = f * m.dur; mediaAt = performance.now();
   });
+  // The draw loop only exists while there is something to draw (island open on a page with a wave). Opening, switching page or showing the window starts it again; collapsed it asks for no frames and sets no timers.
+  let frameOn = false;
   function frame(t) {
     const pg = wrap.dataset.page;
     if (isOpen() && !document.hidden && (pg === 'music' || pg === 'timer' || pg === 'usage')) { if (pg === 'music') drawWave(t); else drawWavy(t); requestAnimationFrame(frame); }
-    else setTimeout(() => requestAnimationFrame(frame), 250);                 // nothing to draw: wake four times a second, not at the display rate
+    else frameOn = false;
   }
-  requestAnimationFrame(frame);
+  function kickFrame() { if (!frameOn) { frameOn = true; requestAnimationFrame(frame); } }
+  new MutationObserver(kickFrame).observe(wrap, { attributes: true, attributeFilter: ['class', 'data-page'] });
+  document.addEventListener('visibilitychange', kickFrame);
+  kickFrame();
 
   // ---------------------------------------------------------------- volume: the HUD on the closed island, the wheel / arrows on the music page
   let vol = { pct: -1, mute: false }, hudT = 0, volChipT = 0;
@@ -602,7 +609,7 @@
   let wView = store.get('wview', 'hours') === 'days' ? 'days' : 'hours';
   const wEl = {
     city: $('#w-city'), cityT: $('#w-city-t'), input: $('#w-input'), icon: $('#w-icon'), temp: $('#w-temp'),
-    cond: $('#w-cond'), feels: $('#w-feels'), hum: $('#w-hum'), wind: $('#w-wind'), hours: $('#w-hours'),
+    cond: $('#w-cond'), hilo: $('#w-hilo'), feels: $('#w-feels'), hum: $('#w-hum'), wind: $('#w-wind'), hours: $('#w-hours'),
     hIcon: $('#h-wx-i'), hT: $('#h-wx-t'), hC: $('#h-wx-c'), sug: $('#w-sug'),
   };
   const tdeg = (n) => Math.round(S.units.temp === 'f' ? (n * 9) / 5 + 32 : n);
@@ -640,7 +647,7 @@
   function renderWeather(w) {
     if (!w || w.error) {
       const msg = { 'no-city': 'Add a city to see the weather', 'not-found': 'City not found', offline: 'Weather unavailable offline' }[w && w.error] || 'Weather unavailable';
-      wEl.cond.textContent = msg; wEl.temp.textContent = '--';
+      wEl.cond.textContent = msg; wEl.temp.textContent = '--'; wEl.hilo.textContent = '';
       wEl.feels.textContent = wEl.hum.textContent = wEl.wind.textContent = '--';
       wEl.hours.replaceChildren();
       wEl.icon.setAttribute('href', '#w-cloud'); wEl.hIcon.setAttribute('href', '#w-cloud');
@@ -654,6 +661,7 @@
     wEl.cityT.textContent = w.place; wEl.icon.setAttribute('href', '#' + icon);
     wEl.temp.textContent = deg(c.temperature_2m); wEl.cond.textContent = text;
     wEl.feels.textContent = deg(c.apparent_temperature);
+    wEl.hilo.textContent = w.daily && Array.isArray(w.daily.time) && w.daily.temperature_2m_max ? 'H ' + tdeg(w.daily.temperature_2m_max[0]) + '°  L ' + tdeg(w.daily.temperature_2m_min[0]) + '°' : '';
     wEl.hum.textContent = Math.round(c.relative_humidity_2m) + '%';
     wEl.wind.textContent = S.units.temp === 'f' ? Math.round(c.wind_speed_10m * 0.621) + ' mph' : Math.round(c.wind_speed_10m) + ' km/h';
     $('#h-wx').dataset.wx = icon;
@@ -969,7 +977,7 @@
     if (n.kind === 'done') happyNext = true;                // the mascot is pleased when it comes back
     else if (n.kind === 'attention') mascot.react('surprise');
     nEl.root.dataset.kind = n.kind; nEl.root.dataset.tone = n.tone || '';
-    nEl.icon.setAttribute('href', n.tone === 'error' ? '#i-warn' : n.kind === 'attention' ? '#i-bell' : '#i-check');
+    nEl.icon.setAttribute('href', n.icon || (n.tone === 'error' ? '#i-warn' : n.kind === 'attention' ? '#i-bell' : '#i-check'));
     nEl.title.textContent = n.title; nEl.sub.textContent = n.sub;
     wrap.classList.remove('alert'); void wrap.offsetWidth; wrap.classList.add('alert');     // small wobble
     wrap.classList.add('has-notice');
@@ -984,7 +992,7 @@
   function pushNotice(n) {
     if (!n || typeof n.title !== 'string') return;
     if (isDnd()) return;                                       // do not disturb
-    noticeQueue.push({ kind: n.kind === 'attention' ? 'attention' : 'done', tone: ['success', 'warning', 'error', 'info'].includes(n.tone) ? n.tone : '', duration: Number(n.duration) || 0, title: n.title, sub: String(n.sub || ''), session: typeof n.session === 'string' ? n.session.slice(0, 128) : '' });
+    noticeQueue.push({ kind: n.kind === 'attention' ? 'attention' : 'done', tone: ['success', 'warning', 'error', 'info'].includes(n.tone) ? n.tone : '', duration: Number(n.duration) || 0, icon: /^#i-[a-z]{2,12}$/.test(n.icon || '') ? n.icon : '', title: n.title, sub: String(n.sub || ''), session: typeof n.session === 'string' ? n.session.slice(0, 128) : '' });
     if (noticeQueue.length > 5) noticeQueue.shift();
     if (!noticeShowing) showNextNotice(); else updateMore();
   }
@@ -1081,28 +1089,40 @@
     if (!wrap.matches(':hover') && !editing) { clearTimeout(closeTimer); closeTimer = setTimeout(close, 280); }
   });
 
+  // ---------------------------------------------------------------- Shape tokens: every polygon has 96 vertices, so clip-path morphs between any two of them
+  (function shapes() {
+    const N = 96, pt = (x, y) => (50 + 50 * x).toFixed(2) + '% ' + (50 + 50 * y).toFixed(2) + '%';
+    const poly = (f) => 'polygon(' + Array.from({ length: N }, (_, i) => { const a = (2 * Math.PI * i) / N; return f(Math.cos(a), Math.sin(a), a); }).join(',') + ')';
+    const sup = (n) => (c, s) => pt(Math.sign(c) * Math.pow(Math.abs(c), 2 / n), Math.sign(s) * Math.pow(Math.abs(s), 2 / n));
+    const lobes = (k, base, amp) => (c, s, a) => { const r = base + amp * Math.cos(k * a); return pt(c * r, s * r); };
+    const r = document.documentElement.style;
+    r.setProperty('--poly-circle', poly(sup(2))); r.setProperty('--poly-pill', poly(sup(3))); r.setProperty('--poly-squircle', poly(sup(5)));
+    r.setProperty('--poly-cookie', poly(lobes(12, .93, .07))); r.setProperty('--poly-burst', poly(lobes(8, .86, .14)));
+  })();
+
   // ---------------------------------------------------------------- Quick actions tray (hover or right-click the settings button)
   const tray = $('#qtray');
-  let trayOpenT = 0, trayCloseT = 0, quitArm = 0;
-  const THEME_NEXT = { auto: 'light', light: 'dark', dark: 'auto' }, THEME_NAME = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+  let trayOpenT = 0, trayCloseT = 0;
   function renderTray() {
     const q = (k) => tray.querySelector('[data-q="' + k + '"]');
     const set = (k, on) => q(k).setAttribute('aria-checked', String(!!on));
     set('awake', awakeBtn.getAttribute('aria-pressed') === 'true'); set('dnd', S.quiet.dnd); set('mute', S.quiet.mute);
-    q('theme').querySelector('.ql').textContent = 'Theme: ' + THEME_NAME[S.theme.mode];
+    const st = (k, text) => { const e = q(k).querySelector('.qs'); if (e) e.textContent = text; };
+    st('awake', awakeBtn.getAttribute('aria-pressed') === 'true' ? 'On' : 'Off'); st('dnd', S.quiet.dnd ? 'On' : 'Off'); st('mute', S.quiet.mute ? 'On' : 'Off');
     q('clip').hidden = !S.clipboard.enabled;
+    q('note').hidden = !(S.notes && S.notes.enabled);
+    q('net').hidden = !(S.network && S.network.enabled); q('mixer').hidden = !(S.mixer && S.mixer.enabled);
     q('dns').hidden = !S.dns.tile; setDnsTile(); setDnspTile();
-    set('sysmute', vol.mute); q('sysmute').querySelector('.ql').textContent = vol.mute ? 'Unmute PC' : 'Mute PC';
-    q('dnd').querySelector('.ql').textContent = S.quiet.dnd ? 'Disturb me' : 'Do not disturb';
+    { const f = S.focus && S.focus.sync; q('dnd').querySelector('.ql').textContent = f ? 'Focus mode' : 'Do not disturb'; }
     gear.toggleAttribute('data-dnd', isDnd());
   }
   // NextDNS tile: its state comes from the main process (registry read, no rights needed)
   let dnsState = 'notinstalled', dnsBusyUi = false;
-  const DNS_LABEL = { on: 'NextDNS on', off: 'NextDNS off', notinstalled: 'Set up DNS', custom: 'DNS: custom', mixed: 'DNS: mixed', unencrypted: 'NextDNS: no DoH', absent: 'DNS: no link', failed: 'DNS: failed', busy: 'Switching...' };
+  const DNS_LABEL = { on: 'On', off: 'Off', notinstalled: 'Set up', custom: 'Custom', mixed: 'Mixed', unencrypted: 'No DoH', absent: 'No link', failed: 'Failed', busy: 'Switching...' };
   function setDnsTile() {
     const t = tray.querySelector('[data-q="dns"]'); if (!t) return;
     const st = dnsBusyUi ? 'busy' : dnsState;
-    t.querySelector('.ql').textContent = DNS_LABEL[st] || 'DNS';
+    t.querySelector('.qs').textContent = DNS_LABEL[st] || 'DNS';
     t.setAttribute('aria-checked', String(st === 'on'));
     t.title = st === 'notinstalled' ? 'Set up the DNS switch (asks for administrator approval once)' : st === 'custom' ? 'DNS was changed by hand. Click to restore NextDNS' : 'Turn NextDNS on or off';
   }
@@ -1113,7 +1133,7 @@
     const has = dnspSt.profiles && dnspSt.profiles.length > 0;
     t.hidden = !has; if (!has) return;
     const cur = dnspSt.profiles.find((p) => p.id === dnspSt.id);
-    t.querySelector('.ql').textContent = dnspBusy ? 'Switching...' : dnspSt.state === 'profile' && cur ? cur.name : dnspSt.state === 'auto' ? 'DNS: Auto' : dnspSt.state === 'custom' ? 'DNS: custom' : dnspSt.state === 'mixed' ? 'DNS: mixed' : 'DNS';
+    t.querySelector('.qs').textContent = dnspBusy ? 'Switching...' : dnspSt.state === 'profile' && cur ? cur.name : dnspSt.state === 'auto' ? 'Auto' : dnspSt.state === 'custom' ? 'Custom' : dnspSt.state === 'mixed' ? 'Mixed' : 'DNS';
     t.setAttribute('aria-checked', String(dnspSt.state === 'profile'));
     t.title = 'Click to switch to the next DNS provider (Automatic, ' + dnspSt.profiles.map((p) => p.name).join(', ') + ')';
   }
@@ -1130,8 +1150,10 @@
     try { const r = await api.dnsStatus(); if (r && typeof r.state === 'string') dnsState = r.state; } catch { /* keep the last state */ }
     setDnsTile();
   }
-  function showTray() { clearTimeout(trayCloseT); if (!isOpen() || settingsOpen) return; refreshDns(); refreshDnsp(); renderTray(); tray.hidden = false; void tray.offsetWidth; tray.classList.add('show'); }
-  function hideTray() { try { trayBtn.setAttribute('aria-pressed', 'false'); } catch { /* not built yet */ } clearTimeout(trayOpenT); clearTimeout(trayCloseT); tray.classList.remove('show'); quitArm = 0; tray.querySelector('[data-q="quit"]').classList.remove('armed'); tray.querySelector('[data-q="quit"] .ql').textContent = 'Quit'; trayCloseT = setTimeout(() => { if (!tray.classList.contains('show')) tray.hidden = true; }, 300); }
+  function trayFade() { const m = tray.scrollHeight > tray.clientHeight + 1; tray.classList.toggle('fade-top', m && tray.scrollTop > 2); tray.classList.toggle('fade-bot', m && tray.scrollTop + tray.clientHeight < tray.scrollHeight - 2); }
+  tray.addEventListener('scroll', trayFade, { passive: true });
+  function showTray() { clearTimeout(trayCloseT); if (!isOpen() || settingsOpen) return; refreshDns(); refreshDnsp(); renderTray(); tray.hidden = false; void tray.offsetWidth; trayFade(); tray.classList.add('show'); }
+  function hideTray() { try { trayBtn.setAttribute('aria-pressed', 'false'); } catch { /* not built yet */ } clearTimeout(trayOpenT); clearTimeout(trayCloseT); tray.classList.remove('show'); trayCloseT = setTimeout(() => { if (!tray.classList.contains('show')) tray.hidden = true; }, 300); }
   // The quick actions have their own round button under the gear: a click opens them, another click (or anywhere else, or Esc) closes them
   const trayBtn = $('#tray-btn');
   trayBtn.addEventListener('click', () => { if (tray.classList.contains('show')) hideTray(); else showTray(); trayBtn.setAttribute('aria-pressed', String(tray.classList.contains('show'))); });
@@ -1144,10 +1166,9 @@
     if (k === 'awake') toggleAwake();
     else if (k === 'dnd') api.setSettings({ quiet: { dnd: !S.quiet.dnd } });
     else if (k === 'mute') api.setSettings({ quiet: { mute: !S.quiet.mute } });
-    else if (k === 'theme') api.setSettings({ theme: { mode: THEME_NEXT[S.theme.mode] } });
     else if (k === 'clip') api.clipboardClear();
-    else if (k === 'snip' || k === 'lock' || k === 'night' || k === 'calc') { api.quick(k); if (k !== 'night') { hideTray(); } }
-    else if (k === 'sysmute') { if (vol.pct >= 0) { vol = { ...vol, mute: !vol.mute }; api.setMute(vol.mute); renderTray(); } }
+    else if (k === 'note' || k === 'net' || k === 'mixer') { hideTray(); if (window.DyFeat) window.DyFeat.tray(k); }
+    else if (k === 'lock') { api.quick(k); hideTray(); }
     else if (k === 'dnsp') cycleDnsp();
     else if (k === 'dns') {
       if (dnsBusyUi) return;
@@ -1156,12 +1177,6 @@
       Promise.resolve(api.dnsToggle()).then((r) => { if (r && typeof r.state === 'string') dnsState = r.state; }).catch(() => {}).finally(() => { dnsBusyUi = false; setDnsTile(); });
     }
     else if (k === 'pause') { hideTray(); pinned = false; close(true); api.capture(false); api.pauseIsland(60); }
-    else if (k === 'restart') api.restartApp();
-    else if (k === 'quit') {                                                      // tap twice: the second tap within 3 s quits
-      if (quitArm && Date.now() - quitArm < 500) return;                           // the second half of a double-click
-      if (!quitArm) { quitArm = Date.now(); b.classList.add('armed'); b.querySelector('.ql').textContent = 'Tap again'; setTimeout(() => { if (quitArm && Date.now() - quitArm >= 2900) { quitArm = 0; b.classList.remove('armed'); b.querySelector('.ql').textContent = 'Quit'; } }, 3000); }
-      else api.quitApp();
-    }
   });
 
   // ---------------------------------------------------------------- Which edge and monitor this island window lives on
@@ -1177,7 +1192,10 @@
   api.onWindowInfo && api.onWindowInfo(applyWindowInfo);
 
   // ---------------------------------------------------------------- Settings applied live: size, theme, tabs, units
-  function visibleTabs() { return S.tabs.filter((t) => !S.hiddenTabs.includes(t)); }
+  // The Share tab (nearby devices plus the shelf) exists while LocalSend or the shelf is on
+  const featureOn = (t) => (t === 'localsend' ? !!((S.localsend && S.localsend.enabled) || (S.shelf && S.shelf.enabled !== false)) : true);
+  const offTabs = () => [...S.hiddenTabs, ...S.tabs.filter((t) => !featureOn(t))];
+  function visibleTabs() { const off = offTabs(); return S.tabs.filter((t) => !off.includes(t)); }
   // Each page can open the island a little differently: the timer is compact, the music page roomier (Settings > Island size > "Fit the size to the page").
   // Never outside the limits Settings allows. Main is told the live size, so the settings card never lands on top of the island.
   const PAGE_LIMITS = { w: [416, 640], h: [232, 340] };
@@ -1197,8 +1215,8 @@
   }
   let appliedNavKey = '';
   function rebuildNav() {
-    const vis = DyTabs.buildNav($('.nav'), S.tabs, S.hiddenTabs, wrap.dataset.page);
-    if (!vis.includes(wrap.dataset.page) && wrap.dataset.page !== 'approve') go(vis[0] || 'home');       // the approval card is not a tab: do not knock it away
+    const vis = DyTabs.buildNav($('.nav'), S.tabs, offTabs(), wrap.dataset.page);
+    if (!vis.includes(wrap.dataset.page) && !EXTRA_PAGES.includes(wrap.dataset.page)) go(vis[0] || 'home');       // the approval card is not a tab: do not knock it away
   }
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const motionMode = () => (reduceMotion.matches ? 'off' : S.motion || 'expressive');
@@ -1228,7 +1246,7 @@
     const o = { hour: 'numeric', minute: '2-digit' };
     if (s.units.clock === '12') o.hour12 = true; else if (s.units.clock === '24') o.hour12 = false;
     timeFmt = new Intl.DateTimeFormat(undefined, o);
-    const navKey = JSON.stringify([s.tabs, s.hiddenTabs]);
+    const navKey = JSON.stringify([s.tabs, s.hiddenTabs, featureOn('localsend')]);
     if (navKey !== appliedNavKey) { appliedNavKey = navKey; rebuildNav(); }
     if (cal) cal.render();
     tickClock();
@@ -1236,6 +1254,7 @@
     renderClipboard(cbItems);
     applyHome();
     renderTray(); renderPriv();
+    if (window.DyFeat) window.DyFeat.onSettings(s);
     syncMascot(); updateVisibility();
   }
 
@@ -1349,9 +1368,8 @@
     battEl.icon.setAttribute('href', b.charging ? '#i-bolt' : '#i-batt');
     battEl.chip.classList.toggle('low', !b.charging && pct <= 15);
     battEl.chip.title = b.charging ? 'Charging' : 'On battery';
-    if (battPrev !== null && battPrev !== b.charging && !noBattery && S.devices && S.devices.toasts) pushNotice({ kind: 'done', tone: 'info', duration: 3, title: b.charging ? 'Charging' : 'Unplugged', sub: pct + '%' });
-    battPrev = b.charging;
-    if (!b.charging && pct <= 15 && !battWarned && S.battery.warn) { mascot.react('sad'); battWarned = true; pushNotice({ kind: 'attention', title: 'Battery low', sub: pct + '% left. Plug in soon' }); }
+    battPrev = b.charging;   // the charger and low-battery toasts come from main (devices.*), not here
+    if (!b.charging && pct <= ((S.devices && S.devices.lowAt) || 15) && !battWarned) { mascot.react('sad'); battWarned = true; }
     if (b.charging || pct > 20) battWarned = false;
   }
   if (navigator.getBattery) {
@@ -1481,6 +1499,10 @@
   setInterval(() => { if (S.mascot.enabled || eyesOn) syncMascot(); }, 500);        // no mascot, no checking
   api.onGaze((g) => { if (g) mascot.lookAt(g.nx, g.ny); });
 
+  // What features.js (LocalSend, shelf, capture chip, network, mixer...) needs from this file
+  window.DyHost = { go, open, close, pushNotice, grabKeys, releaseKeys, isOpen, wrap, $, settings: () => S, hovered: () => wrap.matches(':hover'),
+    pin(v) { pinned = !!v; if (v) clearTimeout(closeTimer); }, hold(v) { editing = !!v; }, page: () => wrap.dataset.page, noteActivity, visibleTabs,
+    settle() { if (!wrap.matches(':hover') && !editing && !pinned) { clearTimeout(closeTimer); closeTimer = setTimeout(close, 700); } updateVisibility(); }, update: () => updateVisibility() };
   applySettings(FALLBACK);
   Promise.resolve(api.getSettings()).then(applySettings).catch(() => { /* keep the built-in defaults */ });
   api.onSettings(applySettings);
