@@ -91,6 +91,9 @@
     if (wrap.classList.contains('has-notice') && !isOpen() && e.target.closest('.notice') && shownNotice && shownNotice.session) {
       dismissNotices(); openClaudeFor(shownNotice.session); return;
     }
+    if (wrap.classList.contains('has-notice') && !isOpen() && e.target.closest('.notice') && shownNotice && shownNotice.act) {     // a mirrored Windows notification: open the app that sent it
+      const a = shownNotice.act; dismissNotices(); if (api.noticeOpen) api.noticeOpen(a); return;
+    }
     if (S.openOn === 'hover' || isOpen()) return;
     const hit = e.target.closest('.stchip'), k = hit && hit.dataset.kind;           // clicking a status chip lands on its page
     if (k === 'event') { const ev = evList.find((x) => x.id === hit.dataset.ev); if (ev && ev.link) { api.openEvent(ev.id); return; } go('home'); }
@@ -1037,7 +1040,7 @@
   function pushNotice(n) {
     if (!n || typeof n.title !== 'string') return;
     if (isDnd()) return;                                       // do not disturb
-    noticeQueue.push({ kind: n.kind === 'attention' ? 'attention' : 'done', tone: ['success', 'warning', 'error', 'info'].includes(n.tone) ? n.tone : '', duration: Number(n.duration) || 0, icon: /^#i-[a-z]{2,12}$/.test(n.icon || '') ? n.icon : '', title: n.title, sub: String(n.sub || ''), session: typeof n.session === 'string' ? n.session.slice(0, 128) : '' });
+    noticeQueue.push({ kind: n.kind === 'attention' ? 'attention' : 'done', tone: ['success', 'warning', 'error', 'info'].includes(n.tone) ? n.tone : '', duration: Number(n.duration) || 0, icon: /^#i-[a-z]{2,12}$/.test(n.icon || '') ? n.icon : '', title: n.title, sub: String(n.sub || ''), session: typeof n.session === 'string' ? n.session.slice(0, 128) : '', act: typeof n.act === 'string' && /^n\d{1,9}$/.test(n.act) ? n.act : '' });
     if (noticeQueue.length > 5) noticeQueue.shift();
     if (!noticeShowing) showNextNotice(); else updateMore();
   }

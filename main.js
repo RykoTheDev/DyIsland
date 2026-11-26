@@ -93,6 +93,9 @@ const sys = require('./main/system').create({
   onBluetooth: (e) => { if (e.state !== 'connected' || !store || !store.get().devices.toasts || dndNow()) return; logEvent('bluetooth connected: ' + e.name); broadcast('notice:show', { kind: 'done', tone: 'info', duration: 4, title: e.name, sub: 'Bluetooth connected' }); },
 });
 
+const notifOpen = require('./main/notif-open').create({ shell: require('electron').shell, execFile: require('child_process').execFile, screenshotsDir: () => path.join(app.getPath('pictures'), 'Screenshots'), logEvent: (m) => logEvent(m) });
+ipcMain.on('notice:open', (_e, id) => { notifOpen.open(id).catch(() => {}); });
+
 // A Windows notification from another app, shown on the island (Settings > Alerts, opt-in). Only app + title + text, kept for the length of the toast; never logged.
 function mirrorNotification(n) {
   if (!store) return;
@@ -103,7 +106,8 @@ function mirrorNotification(n) {
   if (/^dyisland$/i.test(n.app)) return;
   if (!n.title && !n.body) return;
   logEvent('mirrored a Windows notification');
-  broadcast('notice:show', { kind: 'done', tone: 'info', duration: 5, title: (n.app && n.title ? n.app + ': ' + n.title : n.title || n.app), sub: n.body || n.app });
+  const act = notifOpen.remember(n.aumid);                                             // a click opens the app that sent it ('' when the id is unusable)
+  broadcast('notice:show', { kind: 'done', tone: 'info', duration: 5, title: (n.app && n.title ? n.app + ': ' + n.title : n.title || n.app), sub: n.body || n.app, act });
 }
 
 // ---- windows

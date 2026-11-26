@@ -29,7 +29,7 @@ function create({ unpacked, logEvent, onVolume, onBluetooth, onNotification, onP
         else if ((m = /^NOTIF ([A-Za-z0-9+/=]{1,6000})$/.exec(line))) {
           try {                                                   // what other apps put in their notifications is untrusted: parsed as plain data, cut short, control characters out
             const o = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8')), c = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, n);
-            if (onNotification) onNotification({ app: c(o.app, 40), title: c(o.title, 90), body: c(o.body, 160) });
+            if (onNotification) onNotification({ app: c(o.app, 40), aumid: c(o.aumid, 200), title: c(o.title, 90), body: c(o.body, 160) });
           } catch { /* not a notification we can read */ }
         }
       }

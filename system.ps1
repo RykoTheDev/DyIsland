@@ -159,8 +159,9 @@ function Finish-NotifQuery {
   $script:nSeen = $now                                                   # (the first round only learns what is already there: it is not news)
   foreach ($n in $fresh) {
     $app = ''; try { $app = [string]$n.AppInfo.DisplayInfo.DisplayName } catch {}
+    $aumid = ''; try { $aumid = [string]$n.AppInfo.AppUserModelId } catch {}           # which app sent it: a click on the island opens that app
     $texts = @(); try { $b = $n.Notification.Visual.GetBinding([Windows.UI.Notifications.KnownNotificationBindings]::ToastGeneric); foreach ($e in $b.GetTextElements()) { $texts += [string]$e.Text } } catch {}
-    $o = @{ app = $app; title = $(if ($texts.Count) { $texts[0] } else { '' }); body = $(if ($texts.Count -gt 1) { ($texts[1..($texts.Count - 1)] -join ' ') } else { '' }) }
+    $o = @{ app = $app; aumid = $aumid; title = $(if ($texts.Count) { $texts[0] } else { '' }); body = $(if ($texts.Count -gt 1) { ($texts[1..($texts.Count - 1)] -join ' ') } else { '' }) }
     $json = $o | ConvertTo-Json -Compress
     [Console]::Out.WriteLine('NOTIF ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($json))); [Console]::Out.Flush()
   }

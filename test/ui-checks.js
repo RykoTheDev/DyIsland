@@ -101,6 +101,14 @@ module.exports = ((prev) => async (ctx) => {
   await ev("window.__notice({ kind: 'done', title: 'After the call', sub: 'y' })"); await sleep(600);
   await check('toasts come back when the call ends', "document.querySelector('#wrap').classList.contains('has-notice') && document.querySelector('#n-title').textContent === 'After the call'");
   await ev("window.__settings({ meetings: { dnd: false } })"); await sleep(6000);
+  // a mirrored Windows notification carries an action id: a click hands it to main (which opens the app) instead of opening the island
+  await ev("window.__noticeOpened = undefined; window.__notice({ kind: 'done', tone: 'info', title: 'Snipping Tool: Screenshot copied', sub: 'Select here to mark up', act: 'n7' })"); await sleep(700);
+  await ev("document.querySelector('.notice').click()"); await sleep(300);
+  await check('clicking a mirrored notification opens its app, not the island', "window.__noticeOpened === 'n7' && !document.querySelector('#wrap').classList.contains('open')");
+  await ev("window.__notice({ kind: 'done', title: 'Bad', sub: 'x', act: 'calc.exe' })"); await sleep(700);
+  await ev("window.__noticeOpened = undefined; document.querySelector('.notice').click()"); await sleep(300);
+  await check('a notice with a malformed action id is not sent to main', "window.__noticeOpened === undefined");
+  await ev("if (document.querySelector('#wrap').classList.contains('open')) window.DyHost.close(true)"); await sleep(500);
   // keyboard: the shortcut opens the island AND takes the keyboard; keys work; Esc gives it back
   await ev("window.__input = undefined; window.__hotkey(true)"); await sleep(700);
   await check('opening with the shortcut asks for the keyboard', "window.__input === true");

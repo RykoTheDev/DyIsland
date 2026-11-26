@@ -51,7 +51,7 @@ Paths are never trusted from the page except where a file was dropped (`pathForF
 Notes for Design:
 - Existing clipboard channels already cover pin (`clipboard:pin`), clear, copy, paste and the pin persistence (`clipboard.persistPins`, limit `clipboard.max`). The only addition is `clipboard:search`; filtering client-side works too. URL detection is a regex in the renderer; use `urlOpen` / `urlShorten` for the actions.
 - `drop:armed(true)` can fire for any drag (even a text selection). Show the drop UI only when `dragenter` carries `dataTransfer.types.includes('Files')`. Main disarms (`drop:armed(false)`) when the button is released or the pointer leaves the zone, and a drop does not need any renderer reply.
-- Charger toasts, Bluetooth toasts and download-complete / VPN alerts reuse the existing `notice:show` event: `{kind, tone, duration, title, sub}`.
+- Charger toasts, Bluetooth toasts and download-complete / VPN alerts reuse the existing `notice:show` event: `{kind, tone, duration, title, sub}`. A mirrored Windows notification also carries `act` (an opaque id like `n3`); a click sends it back on `notice:open` (renderer -> main, one string) and main opens the app that sent the notification (Snipping Tool: the matching screenshot).
 - `quick:run` now only handles `'lock'`; `snip`, `night` and `calc` were removed. Privacy dot and fullscreen auto-hide were already implemented and are not touched.
 
 ## Settings keys (new, all validated in settingsStore.js)

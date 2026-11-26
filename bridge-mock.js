@@ -184,6 +184,7 @@ if (!window.islandAPI) {
     async agentsCopy(id) { window.__agentCopied = id; return true; },
     async copyHooks() { return true; },
     // Preview only: ?notice=done or ?notice=attention shows a toast after a moment
+    noticeOpen(id) { window.__noticeOpened = id; },
     onNotice(cb) {
       window.__notice = cb;
       const k = new URLSearchParams(location.search).get('notice');

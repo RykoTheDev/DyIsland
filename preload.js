@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld('islandAPI', {
   usage: () => ipcRenderer.invoke('usage:get'),
   limits: () => ipcRenderer.invoke('limits:get'),
   onNotice: (cb) => on('notice:show', cb),
+  noticeOpen: (id) => ipcRenderer.send('notice:open', String(id || '')),   // a mirrored Windows notification was clicked: main opens its app
   onWorking: (cb) => on('working:state', cb),
   // ---- 3.0 (see IPC_CONTRACT.md)
   pathForFile: (file) => { try { return String(webUtils.getPathForFile(file) || ''); } catch { return ''; } },   // the real path of a dropped File ('' if it has none)
