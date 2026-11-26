@@ -77,11 +77,14 @@ function create({ store, dataDir, defaultSaveDir, onDevices = () => {}, onProgre
   const view = () => [...devices.values()].map((d) => ({ id: d.id, alias: d.alias, deviceModel: d.deviceModel, deviceType: d.deviceType, ip: d.ip, port: d.port }));
   let lastView = '[]';
   const pushDevices = () => { const v = view(), s = JSON.stringify(v); if (s !== lastView) { lastView = s; onDevices(v); } };
+  // Another LocalSend app on THIS PC (NectarLink, the official client) announces from one of our own network addresses: it is not a device "nearby".
+  // Loopback is left alone (that is how the tests, and developers, run two instances).
+  const isOwnAddress = (ip) => { try { return Object.values(os.networkInterfaces()).some((l) => (l || []).some((a) => a.address === ip && !a.internal)); } catch { return false; } };
   function addDevice(msg, ip) {
     if (!msg || typeof msg !== 'object') return null;
     const fp = String(msg.fingerprint || '').toUpperCase();
     const p = Number(msg.port);
-    if (!/^[0-9A-F]{16,128}$/.test(fp) || fp === fingerprint || !Number.isInteger(p) || p < 1 || p > 65535 || !ip) return null;
+    if (!/^[0-9A-F]{16,128}$/.test(fp) || fp === fingerprint || !Number.isInteger(p) || p < 1 || p > 65535 || !ip || isOwnAddress(ip)) return null;
     const d = { id: fp, alias: cleanText(msg.alias, 40) || ip, deviceModel: cleanText(msg.deviceModel, 40), deviceType: ['mobile', 'desktop', 'web', 'headless', 'server'].includes(msg.deviceType) ? msg.deviceType : 'desktop', ip, port: p, protocol: msg.protocol === 'http' ? 'http' : 'https', seen: Date.now() };
     devices.set(fp, d); pushDevices();
     return d;
